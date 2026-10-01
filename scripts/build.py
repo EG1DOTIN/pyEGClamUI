@@ -144,7 +144,7 @@ def run_pyinstaller(plat_info: dict, onefile: bool = True) -> Path:
                 cmd.extend(["--icon", str(plat_info["icon"])])
             else:
                 print("   [NOTICE] Skipping macOS bundle icon (Pillow not installed for .icns conversion)")
-        else:
+        elif plat_info["os_name"] == "windows":
             cmd.extend(["--icon", str(plat_info["icon"])])
 
     if plat_info["os_name"] == "macos":
