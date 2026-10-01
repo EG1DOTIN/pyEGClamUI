@@ -66,12 +66,24 @@ class AppPaths:
     @staticmethod
     def get_package_root() -> Path:
         """Returns root directory of the installed pyegclamui package."""
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            meipass = Path(sys._MEIPASS)
+            if (meipass / "pyegclamui").exists():
+                return meipass / "pyegclamui"
+            return meipass
         return Path(__file__).resolve().parent.parent
 
     @staticmethod
     def get_asset_path(*subpaths: str) -> Path:
         """Returns absolute path to a bundled asset file."""
-        return AppPaths.get_package_root() / "assets" / Path(*subpaths)
+        pkg_asset = AppPaths.get_package_root() / "assets" / Path(*subpaths)
+        if pkg_asset.exists():
+            return pkg_asset
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            alt = Path(sys._MEIPASS) / "assets" / Path(*subpaths)
+            if alt.exists():
+                return alt
+        return pkg_asset
 
     @staticmethod
     def get_app_icon_path() -> Path:
