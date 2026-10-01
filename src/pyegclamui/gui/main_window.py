@@ -116,6 +116,9 @@ class MainWindow(QMainWindow):
             self.telemetry_mgr.send_heartbeat_if_due()
 
     def _show_welcome_dialog(self):
+        # Never launch modal dialog in headless or automated test environments
+        if os.getenv("QT_QPA_PLATFORM") == "offscreen" or "pytest" in sys.modules:
+            return
         from pyegclamui.gui.welcome_dialog import WelcomeDialog
         dlg = WelcomeDialog(self)
         apply_dark_titlebar(dlg)

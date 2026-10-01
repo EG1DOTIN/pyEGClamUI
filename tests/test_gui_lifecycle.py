@@ -23,12 +23,15 @@ def qapp():
         app = QApplication([])
     yield app
     app.processEvents()
-    app.quit()
 
 
 
 @pytest.fixture
-def main_win(qapp):
+def main_win(qapp, monkeypatch):
+    from pyegclamui.core.config import Config
+    from pyegclamui.core.daemon import ClamDaemonClient
+    Config.get_instance().set("preferences", "first_run_completed", True)
+    monkeypatch.setattr(ClamDaemonClient, "check_connection", lambda self: (False, "Offline (mock)"))
     win = MainWindow()
     yield win
     if hasattr(win, "guard") and win.guard:

@@ -132,7 +132,20 @@ def run_pyinstaller(plat_info: dict, onefile: bool = True) -> Path:
         cmd.extend(["--hidden-import", "win32api", "--hidden-import", "win32con"])
 
     if plat_info["icon"].exists():
-        cmd.extend(["--icon", str(plat_info["icon"])])
+        if plat_info["os_name"] == "macos":
+            # PyInstaller on macOS requires .icns format or Pillow for auto-conversion
+            has_pillow = False
+            try:
+                import PIL  # noqa: F401
+                has_pillow = True
+            except ImportError:
+                pass
+            if plat_info["icon"].suffix.lower() == ".icns" or has_pillow:
+                cmd.extend(["--icon", str(plat_info["icon"])])
+            else:
+                print("   [NOTICE] Skipping macOS bundle icon (Pillow not installed for .icns conversion)")
+        else:
+            cmd.extend(["--icon", str(plat_info["icon"])])
 
     if plat_info["os_name"] == "macos":
         # On macOS, onedir bundle produces a clean .app bundle

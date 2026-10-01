@@ -82,7 +82,7 @@ class AutoStartManager:
         try:
             import winreg
 
-            key = winreg.OpenKey(
+            key = winreg.CreateKeyEx(
                 winreg.HKEY_CURRENT_USER,
                 r"Software\Microsoft\Windows\CurrentVersion\Run",
                 0,
