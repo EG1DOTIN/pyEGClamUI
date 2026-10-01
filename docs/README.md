@@ -32,6 +32,7 @@ graph TD
         CLI["CLI Command Reference (docs/CLI_REFERENCE.md)"]
         Sec["Security & Privacy Model (docs/SECURITY_MODEL.md)"]
         Ver["Versioning & Release Management (docs/VERSIONING.md)"]
+        Workflow["Development & Release Workflow (docs/DEVELOPMENT_WORKFLOW.md)"]
     end
 
     Index --> Arch
@@ -51,6 +52,7 @@ graph TD
     Index --> CLI
     Index --> Sec
     Index --> Ver
+    Index --> Workflow
 
     Arch --> RT
     Arch --> Tray
@@ -90,6 +92,7 @@ graph TD
 | **[CLI Reference](CLI_REFERENCE.md)** | Command-line utilities guide | `pyegclamui`, `egclam`, `pyegclamui-scan`, `pyegclamui-setup`, argument reference, exit codes |
 | **[Security & Privacy](SECURITY_MODEL.md)** | Safety, integrity, and privacy standards | Zero-telemetry policy, subprocess parameter isolation (no `shell=True`), SHA-256 verification, FOSS compliance |
 | **[Application Versioning](VERSIONING.md)** | Single source of truth (SSOT) and release management | SemVer 2.0.0 criteria, __version__ sync, pyproject.toml alignment, release tagging workflow, automated tests |
+| **[Development & Release Workflow](DEVELOPMENT_WORKFLOW.md)** | Branching strategy, CI/CD and staging architecture | Trunk-based feature branching, PR gates, scratch staging isolation, release publishing runbook |
 | **[Universal Setup Suite](../setup/README.md)** | Bootstrap installer, updater & shortcuts | Cross-platform setup (`setup.py`), 1-liner PowerShell (`install.ps1`), 1-liner Bash (`install.sh`), `--update`, `.venv` isolation |
 | **[Administrator TODO Checklist](../TODO.md)** | External setup action items | Cloud Firestore project setup, production security rules, local `clamd` service, PyInstaller packaging |
 
@@ -107,6 +110,7 @@ pyEGClamUI/
 │   ├── CROSS_PLATFORM.md              # OS-specific integration & hardening
 │   ├── CONFIG_SCHEMA.md               # JSON configuration & data schemas
 │   ├── CLI_REFERENCE.md               # Command-line tools & syntax reference
+│   ├── DEVELOPMENT_WORKFLOW.md        # Branching model, PR gates & scratch staging
 │   ├── SECURITY_MODEL.md              # Security, isolation & privacy standards
 │   ├── REALTIME_GUARD.md              # Filesystem surveillance & 2-folder cap
 │   ├── TRAY_AND_LIFECYCLE.md          # System tray daemon & exit confirmation

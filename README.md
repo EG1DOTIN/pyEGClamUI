@@ -135,6 +135,17 @@ pyegclamui-scan /path/to/folder
 
 ---
 
+## Documentation & Contributing
+
+Comprehensive technical guides and architectural specifications are available in the [`docs/`](docs/README.md) directory:
+
+* 📖 **[Documentation Index](docs/README.md)** — Architectural blueprints, subsystem guides, and CLI reference.
+* 🚀 **[Development & Release Workflow](docs/DEVELOPMENT_WORKFLOW.md)** — Feature branching model, PR quality gates, and staging architecture.
+* 🏷️ **[Application Versioning](docs/VERSIONING.md)** — Semantic Versioning, Single Source of Truth, and release runbook.
+* 🛡️ **[Security & Privacy Model](docs/SECURITY_MODEL.md)** — Zero-telemetry policy, subprocess parameter isolation, and threat quarantine.
+
+---
+
 ## Trademark Notice
 
 **ClamAV®** is a registered trademark of Cisco Systems, Inc.  
