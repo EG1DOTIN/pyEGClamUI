@@ -108,9 +108,22 @@ def test_setup_dialog_ui(setup_dialog):
     assert dlg.btn_copy_log.text() == "Copied!"
 
 
-def test_install_engine_with_on_log():
+def test_install_engine_with_on_log(monkeypatch):
     installer = ClamEngineInstaller()
     logs = []
+
+    # Mock internal installer routines to prevent real network / package manager calls in CI
+    def fake_winget(on_status=None, on_log=None):
+        if on_status:
+            on_status("Mock winget running...")
+        if on_log:
+            on_log("[*] Mock winget log entry")
+        return True, "Mock winget success"
+
+    monkeypatch.setattr(installer, "_install_via_winget", fake_winget)
+    monkeypatch.setattr(installer, "_post_install_configure", lambda *a, **kw: None)
+    monkeypatch.setattr(installer, "_install_via_msi", lambda *a, **kw: (True, "Mock MSI success"))
+
     success, msg = installer.install_engine(on_log=lambda l: logs.append(l))
     assert isinstance(success, bool)
     assert len(logs) > 0 or success
