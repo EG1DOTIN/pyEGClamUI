@@ -1,0 +1,1764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pyEGClamUI - Desktop UI Design Preview</title>
+  <style>
+    /* ==========================================================================
+       pyEGClamUI Design System Tokens & QSS Theme
+       Derived from: pyegclamui/gui/styles.py & docs/GUI_DESIGN_SYSTEM.md
+       ========================================================================== */
+    :root {
+      --bg-dark: #121214;
+      --bg-window: #1e1f22;
+      --bg-card: #111214;
+      --bg-surface: #1a1a1e;
+      --bg-tab-inactive: #2b2d31;
+      --bg-tab-hover: #35373c;
+      --bg-input: #111214;
+      --border-color: #313338;
+      --border-input: #3f4147;
+      --border-focus: #38bdf8;
+      --text-primary: #f2f3f5;
+      --text-secondary: #949ba4;
+      --text-table: #e0e2e8;
+      --text-muted: #64748b;
+      
+      --accent-sky: #38bdf8;
+      --accent-sky-dark: #0284c7;
+      --accent-sky-hover: #0ea5e9;
+      --accent-green: #22c55e;
+      --accent-green-dark: #166534;
+      --accent-green-btn: #16a34a;
+      --accent-amber: #eab308;
+      --accent-amber-dark: #854d0e;
+      --accent-red: #ef4444;
+      --accent-red-dark: #991b1b;
+      --accent-red-btn: #dc2626;
+
+      --btn-secondary-bg: #334155;
+      --btn-secondary-border: #475569;
+      --btn-secondary-hover: #475569;
+
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: #0b0c0e;
+      color: var(--text-table);
+      font-family: var(--font-family);
+      font-size: 13px;
+      line-height: 1.4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px 16px 60px;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Top Preview Control Bar (For testing states & dialogs) */
+    .preview-toolbar {
+      width: 100%;
+      max-width: 960px;
+      background: #18191c;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px 16px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    }
+
+    .preview-toolbar .title-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      color: var(--accent-sky);
+      font-size: 13px;
+    }
+
+    .preview-toolbar .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+    }
+
+    .toolbar-btn {
+      background-color: #2b2d31;
+      color: #ffffff;
+      border: 1px solid #3f4147;
+      padding: 5px 12px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .toolbar-btn:hover {
+      background-color: #383a40;
+      border-color: #64748b;
+    }
+
+    .toolbar-btn.active {
+      background-color: var(--accent-sky-dark);
+      border-color: var(--accent-sky);
+    }
+
+    /* ==========================================================================
+       Desktop Window Container (Exact 920x640 / Native Qt Window styling)
+       ========================================================================== */
+    .desktop-window {
+      width: 100%;
+      max-width: 940px;
+      background-color: var(--bg-window);
+      border: 1px solid #313338;
+      border-radius: 10px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* Native Dark Windows Titlebar (Immersive Dark Mode dwmapi) */
+    .window-titlebar {
+      height: 38px;
+      background-color: #18191c;
+      border-bottom: 1px solid #27292d;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-left: 14px;
+      padding-right: 0;
+      user-select: none;
+    }
+
+    .window-title {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #c4c7cf;
+    }
+
+    .window-title svg {
+      width: 18px;
+      height: 18px;
+      fill: var(--accent-sky);
+    }
+
+    .window-controls {
+      display: flex;
+      height: 100%;
+    }
+
+    .win-btn {
+      width: 46px;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #949ba4;
+      cursor: pointer;
+      transition: background-color 0.12s;
+    }
+
+    .win-btn:hover {
+      background-color: #2b2d31;
+      color: #ffffff;
+    }
+
+    .win-btn.close:hover {
+      background-color: #e81123;
+      color: #ffffff;
+    }
+
+    /* Main Window Central Layout */
+    .window-body {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      height: 600px;
+      background-color: var(--bg-window);
+    }
+
+    /* QTabWidget Tabs */
+    .tab-header {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      margin-bottom: 0;
+      position: relative;
+      z-index: 2;
+    }
+
+    .tab-btn {
+      background-color: var(--bg-tab-inactive);
+      color: var(--text-secondary);
+      border: none;
+      padding: 10px 22px;
+      border-top-left-radius: 6px;
+      border-top-right-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: background-color 0.15s, color 0.15s;
+    }
+
+    .tab-btn:hover {
+      background-color: var(--bg-tab-hover);
+      color: #f2f3f5;
+    }
+
+    .tab-btn.active {
+      background-color: var(--bg-window);
+      color: var(--accent-sky);
+      border-bottom: 2px solid var(--accent-sky);
+      margin-bottom: -1px;
+      position: relative;
+      z-index: 3;
+    }
+
+    .tab-pane {
+      background-color: var(--bg-window);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      border-top-left-radius: 0;
+      flex: 1;
+      overflow: hidden;
+      display: none;
+      position: relative;
+      z-index: 1;
+    }
+
+    .tab-pane.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Generic QSS Buttons */
+    button {
+      font-family: inherit;
+    }
+
+    .btn {
+      background-color: var(--btn-secondary-bg);
+      color: #ffffff;
+      border: 1px solid var(--btn-secondary-border);
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background-color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      background-color: var(--btn-secondary-hover);
+      border-color: #64748b;
+    }
+
+    .btn:active {
+      background-color: #1e293b;
+    }
+
+    .btn-primary {
+      background-color: var(--accent-sky-dark);
+      color: #ffffff;
+      border: 1px solid var(--accent-sky);
+      font-weight: 700;
+      padding: 8px 18px;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--accent-sky-hover);
+      border-color: #7dd3fc;
+    }
+
+    .btn-primary:active {
+      background-color: #0369a1;
+    }
+
+    .btn-danger {
+      background-color: var(--accent-red-btn);
+      color: #ffffff;
+      border: 1px solid #ef4444;
+    }
+
+    .btn-danger:hover {
+      background-color: #ef4444;
+      border-color: #f87171;
+    }
+
+    .btn-danger:active {
+      background-color: #b91c1c;
+    }
+
+    .btn-success {
+      background-color: var(--accent-green-btn);
+      color: #ffffff;
+      border: 1px solid #22c55e;
+    }
+
+    .btn-success:hover {
+      background-color: #22c55e;
+      border-color: #4ade80;
+    }
+
+    .btn-success:active {
+      background-color: #15803d;
+    }
+
+    /* QGroupBox Styles */
+    .group-box {
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      margin-top: 14px;
+      padding: 16px;
+      position: relative;
+    }
+
+    .group-box-title {
+      position: absolute;
+      top: -10px;
+      left: 12px;
+      background-color: var(--bg-window);
+      padding: 0 8px;
+      color: var(--accent-sky);
+      font-weight: bold;
+      font-size: 12px;
+    }
+
+    /* Inputs, Selects, Spinboxes */
+    .input-text, .input-spin {
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-input);
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: #f2f3f5;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .input-text:focus, .input-spin:focus {
+      border-color: var(--border-focus);
+    }
+
+    .input-spin {
+      width: 90px;
+      text-align: right;
+    }
+
+    /* Checkboxes & Radios */
+    .form-check {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      color: var(--text-table);
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+
+    .form-check input[type="checkbox"],
+    .form-check input[type="radio"] {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 17px;
+      height: 17px;
+      border: 2px solid #5c5f66;
+      background: var(--bg-input);
+      border-radius: 4px;
+      cursor: pointer;
+      position: relative;
+      display: grid;
+      place-content: center;
+      transition: all 0.15s ease;
+    }
+
+    .form-check input[type="radio"] {
+      border-radius: 50%;
+    }
+
+    .form-check input[type="checkbox"]:checked {
+      background: var(--accent-sky-dark);
+      border-color: var(--accent-sky);
+    }
+
+    .form-check input[type="checkbox"]:checked::after {
+      content: "";
+      width: 5px;
+      height: 9px;
+      border: solid #ffffff;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+      margin-top: -2px;
+    }
+
+    .form-check input[type="radio"]:checked {
+      background: var(--accent-sky-dark);
+      border-color: var(--accent-sky);
+    }
+
+    .form-check input[type="radio"]:checked::after {
+      content: "";
+      width: 7px;
+      height: 7px;
+      background-color: #ffffff;
+      border-radius: 50%;
+    }
+
+    /* Custom Scrollbar */
+    .custom-scroll {
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #3f4147 transparent;
+    }
+
+    .custom-scroll::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    .custom-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #3f4147;
+      border-radius: 5px;
+    }
+
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: #5c5f66;
+    }
+
+    /* ==========================================================================
+       TAB 1: STATUS
+       ========================================================================== */
+    .tab-status-content {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      height: 100%;
+    }
+
+    .banner-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--accent-green-dark);
+      border-radius: 12px;
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      transition: all 0.25s ease;
+    }
+
+    .banner-card.protected {
+      border-color: #166534;
+      background-color: #111214;
+    }
+
+    .banner-card.warning {
+      border-color: #854d0e;
+      background-color: #111214;
+    }
+
+    .banner-card.danger {
+      border-color: #991b1b;
+      background-color: #111214;
+    }
+
+    .banner-left {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .banner-icon {
+      width: 64px;
+      height: 64px;
+      flex-shrink: 0;
+    }
+
+    .banner-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--accent-green);
+      margin-bottom: 4px;
+    }
+
+    .banner-card.warning .banner-title {
+      color: var(--accent-amber);
+    }
+
+    .banner-card.danger .banner-title {
+      color: var(--accent-red);
+    }
+
+    .banner-sub {
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .engine-info-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .engine-info-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-table);
+    }
+
+    .engine-info-item .label {
+      color: var(--text-secondary);
+      font-weight: 500;
+      min-width: 170px;
+    }
+
+    .engine-info-item .val {
+      color: #f8fafc;
+      font-weight: 600;
+      font-family: monospace;
+      font-size: 12.5px;
+    }
+
+    .engine-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: bold;
+      background-color: rgba(34, 197, 94, 0.15);
+      color: var(--accent-green);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    /* ==========================================================================
+       TAB 2: SCAN (4 Horizontal Cards)
+       ========================================================================== */
+    .tab-scan-content {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      height: 100%;
+    }
+
+    .scan-header h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent-sky);
+      margin-bottom: 4px;
+    }
+
+    .scan-header p {
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .scan-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-top: 6px;
+    }
+
+    .scan-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      transition: all 0.2s ease;
+    }
+
+    .scan-card:hover {
+      border-color: var(--accent-sky-dark);
+      background-color: #14161a;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .scan-card-icon {
+      width: 52px;
+      height: 52px;
+      margin-bottom: 12px;
+      color: var(--accent-sky);
+    }
+
+    .scan-card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--accent-sky);
+      margin-bottom: 8px;
+    }
+
+    .scan-card-desc {
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.35;
+      min-height: 65px;
+      margin-bottom: 16px;
+    }
+
+    .scan-card .btn {
+      width: 100%;
+    }
+
+    /* ==========================================================================
+       TAB 3: QUARANTINE (Table & Actions)
+       ========================================================================== */
+    .tab-quarantine-content {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      height: 100%;
+    }
+
+    .quarantine-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .quarantine-header h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent-sky);
+    }
+
+    .badge-count {
+      background: #2b2d31;
+      border: 1px solid #3f4147;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #cbd5e1;
+    }
+
+    .table-container {
+      flex: 1;
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .q-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 12.5px;
+    }
+
+    .q-table th {
+      background-color: #2b2d31;
+      color: var(--text-secondary);
+      padding: 8px 12px;
+      font-weight: 600;
+      border-right: 1px solid #1e1f22;
+      border-bottom: 1px solid var(--border-color);
+      position: sticky;
+      top: 0;
+    }
+
+    .q-table th:last-child {
+      border-right: none;
+    }
+
+    .q-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #232529;
+      color: var(--text-table);
+      white-space: nowrap;
+    }
+
+    .q-table tr {
+      cursor: pointer;
+      transition: background-color 0.1s;
+    }
+
+    .q-table tbody tr:hover {
+      background-color: #1a1c20;
+    }
+
+    .q-table tbody tr.selected {
+      background-color: var(--accent-sky-dark) !important;
+      color: #ffffff !important;
+      font-weight: 600;
+    }
+
+    .q-table tbody tr.selected td {
+      color: #ffffff !important;
+    }
+
+    .threat-tag {
+      color: var(--accent-red);
+      font-weight: 600;
+    }
+
+    .quarantine-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .action-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* ==========================================================================
+       TAB 4: SETTINGS (2-Column Grid + Pinned Bottom Bar)
+       ========================================================================== */
+    .tab-settings-container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .settings-scroll-area {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .settings-grid .group-box {
+      margin-top: 8px;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .settings-row label {
+      font-size: 13px;
+      color: var(--text-table);
+    }
+
+    .settings-bottom-bar {
+      background-color: var(--bg-window);
+      border-top: 1px solid var(--border-color);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .sub-options-box {
+      margin-left: 24px;
+      margin-top: 6px;
+      margin-bottom: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    /* ==========================================================================
+       TAB 5: ABOUT
+       ========================================================================== */
+    .tab-about-content {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      height: 100%;
+      overflow-y: auto;
+    }
+
+    .about-header-box {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .about-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--accent-sky);
+    }
+
+    .about-version {
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .about-desc {
+      color: var(--text-table);
+      line-height: 1.5;
+      margin-top: 4px;
+    }
+
+    .about-credits {
+      color: var(--text-secondary);
+      font-size: 12.5px;
+      line-height: 1.6;
+      margin-top: 6px;
+    }
+
+    .about-credits a {
+      color: var(--accent-sky);
+      text-decoration: none;
+    }
+
+    .about-credits a:hover {
+      text-decoration: underline;
+    }
+
+    .disclaimer-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 12px;
+      color: var(--text-secondary);
+      font-size: 11.5px;
+      line-height: 1.45;
+      margin-top: 10px;
+    }
+
+    /* ==========================================================================
+       MODAL DIALOG PREVIEWS (ScanDialog & WelcomeDialog & SetupWizard)
+       ========================================================================== */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      z-index: 999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .modal-overlay.open {
+      display: flex;
+    }
+
+    .modal-box {
+      width: 100%;
+      max-width: 720px;
+      background: var(--bg-window);
+      border: 1px solid #383a40;
+      border-radius: 10px;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85);
+      overflow: hidden;
+      animation: modalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes modalFadeIn {
+      from { opacity: 0; transform: scale(0.96); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .progress-bar-container {
+      width: 100%;
+      height: 18px;
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .progress-bar-indeterminate {
+      width: 40%;
+      height: 100%;
+      background: linear-gradient(90deg, #0284c7, #38bdf8, #0284c7);
+      border-radius: 5px;
+      animation: pulseMarquee 1.6s infinite ease-in-out;
+    }
+
+    @keyframes pulseMarquee {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(300%); }
+    }
+
+    .stats-card-row {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .stats-card-item {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    /* Responsive styling */
+    @media (max-width: 860px) {
+      .scan-cards-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .settings-grid {
+        grid-template-columns: 1fr;
+      }
+      .desktop-window {
+        height: auto;
+      }
+      .window-body {
+        height: auto;
+        min-height: 580px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========================================================================
+       TOP TOOLBAR: Switch status states & open dialog modals
+       ======================================================================== -->
+  <header class="preview-toolbar">
+    <div class="title-badge">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
+      </svg>
+      <span>pyEGClamUI — UI & Design Token Preview</span>
+    </div>
+
+    <div class="controls">
+      <span style="color: var(--text-secondary); font-size: 12px;">Status Banner Demo:</span>
+      <button class="toolbar-btn active" id="btn-state-protected" onclick="setStatusState('protected')">🟢 Protected</button>
+      <button class="toolbar-btn" id="btn-state-warning" onclick="setStatusState('warning')">🟡 At Risk</button>
+      <button class="toolbar-btn" id="btn-state-danger" onclick="setStatusState('danger')">🔴 Engine Offline</button>
+      <button class="toolbar-btn" onclick="openScanModal()">⚡ Live Scan Dialog</button>
+    </div>
+  </header>
+
+  <!-- ========================================================================
+       MAIN DESKTOP APPLICATION WINDOW (Exact PySide6 MainWindow Replica)
+       ======================================================================== -->
+  <main class="desktop-window" id="mainWindow">
+
+    <!-- Native Windows 11 / DWM Dark Titlebar -->
+    <div class="window-titlebar">
+      <div class="window-title">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
+        </svg>
+        <span>pyEGClamUI - Antivirus Manager</span>
+      </div>
+
+      <div class="window-controls">
+        <div class="win-btn" title="Minimize">
+          <svg width="10" height="10" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
+        </div>
+        <div class="win-btn" title="Maximize">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0,0v10h10V0H0z M9,9H1V1h8V9z" fill="currentColor"/></svg>
+        </div>
+        <div class="win-btn close" title="Close">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1,0L0,1l4,4L0,9l1,1l4-4l4,4l1-1L6,5l4-4L9,0L5,4L1,0z" fill="currentColor"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Window Body & QTabWidget -->
+    <div class="window-body">
+
+      <!-- QTabWidget Tab Header Buttons -->
+      <nav class="tab-header" role="tablist">
+        <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="pane-status" onclick="switchTab(0, this)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+          Status
+        </button>
+        <button class="tab-btn" role="tab" aria-selected="false" aria-controls="pane-scan" onclick="switchTab(1, this)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 2v2h1v14a4 4 0 0 0 4 4 4 4 0 0 0 4-4V4h1V2H7zm4 13.5V5h2v10.5a2 2 0 1 1-2 0z"/></svg>
+          Scan
+        </button>
+        <button class="tab-btn" role="tab" aria-selected="false" aria-controls="pane-quarantine" onclick="switchTab(2, this)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 4h-3.5l-1-1h-5l-1 1H5v2h14M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12z"/></svg>
+          Quarantine
+        </button>
+        <button class="tab-btn" role="tab" aria-selected="false" aria-controls="pane-settings" onclick="switchTab(3, this)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+          Settings
+        </button>
+        <button class="tab-btn" role="tab" aria-selected="false" aria-controls="pane-about" onclick="switchTab(4, this)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+          About
+        </button>
+      </nav>
+
+      <!-- ====================================================================
+           TAB PANE 1: STATUS
+           ==================================================================== -->
+      <section class="tab-pane active" id="pane-status" role="tabpanel">
+        <div class="tab-status-content custom-scroll">
+
+          <!-- 3-Tier Dynamic Status Hero Banner -->
+          <div class="banner-card protected" id="statusBanner">
+            <div class="banner-left">
+              <!-- Dynamic Shield SVG -->
+              <svg class="banner-icon" id="bannerShieldIcon" viewBox="0 0 64 64" fill="none">
+                <path id="shieldPath" d="M32 6 L52 14 V34 C52 48 32 58 32 58 C32 58 12 48 12 34 V14 Z" fill="rgba(34, 197, 94, 0.12)" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                <path id="shieldCheckmark" d="M22 32 L29 39 L43 25" stroke="#22c55e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+
+              <div>
+                <div class="banner-title" id="bannerTitle">System Protected</div>
+                <div class="banner-sub" id="bannerSubtitle">Real-time protection is active. Virus signatures are up-to-date.</div>
+              </div>
+            </div>
+
+            <button class="btn btn-primary" id="bannerActionBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+              </svg>
+              <span id="bannerBtnText">Check for Updates</span>
+            </button>
+          </div>
+
+          <!-- Group Box: Engine & Signature Details -->
+          <div class="group-box">
+            <span class="group-box-title">ClamAV Engine & Signature Details</span>
+            <div class="engine-info-list">
+              <div class="engine-info-item">
+                <span class="label">Engine Version:</span>
+                <span class="val" id="valEngineVer">ClamAV 1.4.1 (x64)</span>
+                <span class="engine-badge" id="badgeEngine">● Online</span>
+              </div>
+              <div class="engine-info-item">
+                <span class="label">Signature Database:</span>
+                <span class="val" id="valDbVer">Up-to-date (Daily: 27580, Main: 62, Bytecode: 335)</span>
+                <span class="engine-badge">● Fresh</span>
+              </div>
+              <div class="engine-info-item">
+                <span class="label">Clamd Daemon Socket:</span>
+                <span class="val" id="valDaemon">Connected (127.0.0.1:3310 - Active)</span>
+                <span class="engine-badge">⚡ Accelerated</span>
+              </div>
+              <div class="engine-info-item">
+                <span class="label">ClamScan Binary:</span>
+                <span class="val" id="valScanPath">C:\Program Files\ClamAV\clamscan.exe</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           TAB PANE 2: SCAN (4 Scan Mode Cards)
+           ==================================================================== -->
+      <section class="tab-pane" id="pane-scan" role="tabpanel">
+        <div class="tab-scan-content">
+          <div class="scan-header">
+            <h2>Choose a Scan Mode</h2>
+            <p>Select an automated inspection mode to detect and neutralize threats.</p>
+          </div>
+
+          <div class="scan-cards-grid">
+
+            <!-- Card 1: Quick Scan -->
+            <div class="scan-card">
+              <svg class="scan-card-icon" viewBox="0 0 64 64" fill="none">
+                <!-- Sharp lightning bolt matching IconFactory._draw_quick_scan -->
+                <path d="M33 7 L17 33 H31 L26 56 L49 28 H35 Z" fill="#38bdf8"/>
+              </svg>
+              <div class="scan-card-title">Quick Scan</div>
+              <div class="scan-card-desc">
+                Lightweight check focusing on common high-priority directories (Downloads, Desktop, Temp).
+              </div>
+              <button class="btn btn-primary" onclick="openScanModal('Quick Scan')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                </svg>
+                Run Quick Scan
+              </button>
+            </div>
+
+            <!-- Card 2: Full System Scan -->
+            <div class="scan-card">
+              <svg class="scan-card-icon" viewBox="0 0 64 64" fill="none" stroke="#38bdf8" stroke-width="2.5">
+                <!-- Tiered hard drive array matching IconFactory._draw_full_scan -->
+                <rect x="13" y="11" width="38" height="11" rx="3"/>
+                <circle cx="45" cy="16.5" r="1.5" fill="#38bdf8"/>
+                <rect x="13" y="26" width="38" height="11" rx="3"/>
+                <circle cx="45" cy="31.5" r="1.5" fill="#38bdf8"/>
+                <rect x="13" y="41" width="38" height="11" rx="3"/>
+                <circle cx="45" cy="46.5" r="1.5" fill="#38bdf8"/>
+              </svg>
+              <div class="scan-card-title">Full System Scan</div>
+              <div class="scan-card-desc">
+                Thorough scan across all accessible local storage drives and system partitions.
+              </div>
+              <button class="btn btn-primary" onclick="openScanModal('Full System Scan')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                </svg>
+                Run Full Scan
+              </button>
+            </div>
+
+            <!-- Card 3: Custom Scan -->
+            <div class="scan-card">
+              <svg class="scan-card-icon" viewBox="0 0 64 64" fill="none" stroke="#38bdf8" stroke-width="2.5">
+                <!-- Folder with magnifying glass matching IconFactory._draw_custom_scan -->
+                <path d="M12 20 H26 L31 25 H51 V46 H12 Z" stroke-linejoin="round"/>
+                <circle cx="38" cy="35" r="9"/>
+                <line x1="45" y1="42" x2="53" y2="50" stroke-linecap="round"/>
+              </svg>
+              <div class="scan-card-title">Custom Scan</div>
+              <div class="scan-card-desc">
+                Target specific files, folders, or external drives of your choice.
+              </div>
+              <button class="btn btn-primary" onclick="openScanModal('Custom Scan')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="3"/>
+                </svg>
+                Select & Scan
+              </button>
+            </div>
+
+            <!-- Card 4: Memory Scan -->
+            <div class="scan-card">
+              <svg class="scan-card-icon" viewBox="0 0 64 64" fill="none" stroke="#38bdf8" stroke-width="2.5">
+                <!-- RAM Microprocessor chip matching IconFactory._draw_memory_scan -->
+                <rect x="18" y="18" width="28" height="28" rx="4"/>
+                <circle cx="32" cy="32" r="3" fill="#38bdf8"/>
+                <!-- Top & Bottom Pins -->
+                <line x1="24" y1="18" x2="24" y2="10"/>
+                <line x1="32" y1="18" x2="32" y2="10"/>
+                <line x1="40" y1="18" x2="40" y2="10"/>
+                <line x1="24" y1="46" x2="24" y2="54"/>
+                <line x1="32" y1="46" x2="32" y2="54"/>
+                <line x1="40" y1="46" x2="40" y2="54"/>
+                <!-- Left & Right Pins -->
+                <line x1="18" y1="24" x2="10" y2="24"/>
+                <line x1="18" y1="32" x2="10" y2="32"/>
+                <line x1="18" y1="40" x2="10" y2="40"/>
+                <line x1="46" y1="24" x2="54" y2="24"/>
+                <line x1="46" y1="32" x2="54" y2="32"/>
+                <line x1="46" y1="40" x2="54" y2="40"/>
+              </svg>
+              <div class="scan-card-title">Memory Scan</div>
+              <div class="scan-card-desc">
+                Detects hidden, active threats currently running in system memory.
+              </div>
+              <button class="btn btn-primary" onclick="openScanModal('Memory Scan')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="4" y="4" width="16" height="16" rx="2"/>
+                  <rect x="9" y="9" width="6" height="6"/>
+                  <line x1="9" y1="1" x2="9" y2="4"/>
+                  <line x1="15" y1="1" x2="15" y2="4"/>
+                  <line x1="9" y1="20" x2="9" y2="23"/>
+                  <line x1="15" y1="20" x2="15" y2="23"/>
+                </svg>
+                Scan Memory
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           TAB PANE 3: QUARANTINE
+           ==================================================================== -->
+      <section class="tab-pane" id="pane-quarantine" role="tabpanel">
+        <div class="tab-quarantine-content">
+
+          <div class="quarantine-header">
+            <h2>Quarantine Vault</h2>
+            <span class="badge-count">3 Threats Isolated</span>
+          </div>
+
+          <!-- Non-editable high-contrast Table -->
+          <div class="table-container custom-scroll">
+            <table class="q-table" id="quarantineTable">
+              <thead>
+                <tr>
+                  <th style="width: 220px;">File Name</th>
+                  <th style="width: 200px;">Threat Name</th>
+                  <th>Original Location</th>
+                  <th style="width: 150px;">Date Quarantined</th>
+                  <th style="width: 80px;">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr onclick="selectQuarantineRow(this)">
+                  <td>eicar-standard-antivirus-test-file.com</td>
+                  <td class="threat-tag">Eicar-Signature</td>
+                  <td>C:\Users\User\Downloads\eicar.com</td>
+                  <td>2026-09-24 14:22:10</td>
+                  <td>0.1 KB</td>
+                </tr>
+                <tr class="selected" onclick="selectQuarantineRow(this)">
+                  <td>suspicious_keygen.exe</td>
+                  <td class="threat-tag">Win.Trojan.Generic-984321</td>
+                  <td>C:\Users\User\Downloads\suspicious_keygen.exe</td>
+                  <td>2026-09-23 18:05:42</td>
+                  <td>2,410.5 KB</td>
+                </tr>
+                <tr onclick="selectQuarantineRow(this)">
+                  <td>dropper_obfuscated.ps1</td>
+                  <td class="threat-tag">Heuristics.Trojan.Downloader</td>
+                  <td>C:\Users\User\Desktop\temp\dropper_obfuscated.ps1</td>
+                  <td>2026-09-22 09:14:18</td>
+                  <td>14.2 KB</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Actions Row matching MainWindow -->
+          <div class="quarantine-actions">
+            <button class="btn" title="Reload quarantined items from vault storage">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+              </svg>
+              Refresh Vault
+            </button>
+
+            <div class="action-right">
+              <button class="btn btn-success" title="Restore selected file back to original location">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="1 4 1 10 7 10"/>
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                </svg>
+                Restore Selected
+              </button>
+              <button class="btn btn-danger" title="Permanently delete selected quarantined file">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+                Delete Selected
+              </button>
+              <button class="btn btn-danger" title="Purge all items in quarantine">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+                Empty Vault
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           TAB PANE 4: SETTINGS (2-Column Grid + Pinned Bottom Bar)
+           ==================================================================== -->
+      <section class="tab-pane" id="pane-settings" role="tabpanel">
+        <div class="tab-settings-container">
+
+          <div class="settings-scroll-area custom-scroll">
+            <div class="settings-grid">
+
+              <!-- Box 1: Protection Preferences -->
+              <div class="group-box">
+                <span class="group-box-title">Protection Preferences & Threat Remediation</span>
+                <label class="form-check">
+                  <input type="checkbox" checked>
+                  <span>Enable Real-Time Guard (Watches Downloads & Desktop)</span>
+                </label>
+                <label class="form-check">
+                  <input type="checkbox" checked>
+                  <span>Automatic Daily Virus Database Updates</span>
+                </label>
+                <label class="form-check">
+                  <input type="checkbox" checked>
+                  <span>Show Desktop Notifications on Threat Detection</span>
+                </label>
+                <label class="form-check">
+                  <input type="checkbox" checked>
+                  <span>Minimize to system tray when closing window</span>
+                </label>
+                <label class="form-check">
+                  <input type="checkbox">
+                  <span>Start pyEGClamUI minimized on Windows startup</span>
+                </label>
+
+                <div style="margin-top: 10px; margin-bottom: 6px; font-weight: bold; color: var(--accent-sky); font-size: 12px;">
+                  Action to take when a threat is detected:
+                </div>
+                <label class="form-check">
+                  <input type="radio" name="threat_action" value="1">
+                  <span>Report Only (Do not modify file)</span>
+                </label>
+                <label class="form-check">
+                  <input type="radio" name="threat_action" value="2">
+                  <span>Move to Trash / Delete</span>
+                </label>
+                <label class="form-check">
+                  <input type="radio" name="threat_action" value="3" checked>
+                  <span>Move to Quarantine Vault (Recommended)</span>
+                </label>
+              </div>
+
+              <!-- Box 2: Scan Limits & Archive Handling -->
+              <div class="group-box">
+                <span class="group-box-title">Scan Limits & Archive Handling</span>
+                <div class="settings-row">
+                  <label>Do not scan files larger than:</label>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <input type="number" class="input-spin" value="50" min="1" max="4096">
+                    <span style="color: var(--text-secondary);">MB</span>
+                  </div>
+                </div>
+
+                <label class="form-check" style="margin-top: 4px;">
+                  <input type="checkbox" checked>
+                  <span>Inspect compressed archives (.zip, .rar, .tar, .7z)</span>
+                </label>
+
+                <div class="settings-row">
+                  <label>Max uncompressed archive size:</label>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <input type="number" class="input-spin" value="100" min="10" max="8192">
+                    <span style="color: var(--text-secondary);">MB</span>
+                  </div>
+                </div>
+
+                <div class="settings-row">
+                  <label>Max files to extract from archive:</label>
+                  <input type="number" class="input-spin" value="1000" min="10" max="100000">
+                </div>
+
+                <div class="settings-row">
+                  <label>Max nested sub-archive depth:</label>
+                  <input type="number" class="input-spin" value="15" min="1" max="100">
+                </div>
+              </div>
+
+              <!-- Box 3: Extension Filtering -->
+              <div class="group-box">
+                <span class="group-box-title">File Extension Filtering</span>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 4px; font-size: 12px; color: var(--text-secondary);">
+                    Exclude file extensions from scan (comma-separated):
+                  </label>
+                  <input type="text" class="input-text" style="width: 100%;" value="iso, vmdk, vdi, mp3, mp4" placeholder="e.g. iso, vmdk, vdi, mp3, mp4">
+                </div>
+
+                <div>
+                  <label style="display: block; margin-bottom: 4px; font-size: 12px; color: var(--text-secondary);">
+                    Scan only specific extensions (whitelist, empty = scan all):
+                  </label>
+                  <input type="text" class="input-text" style="width: 100%;" value="" placeholder="e.g. exe, dll, bat, cmd, docm (leave empty to scan all)">
+                </div>
+              </div>
+
+              <!-- Box 4: ClamAV Engine Configuration -->
+              <div class="group-box">
+                <span class="group-box-title">ClamAV Engine Configuration & Service Linkage</span>
+                <p style="color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; line-height: 1.35;">
+                  Manage backend engine, verify daemon connectivity, or run universal setup wizard.
+                </p>
+
+                <div style="color: var(--text-table); font-size: 12px; margin-bottom: 8px; font-family: monospace;">
+                  Active ClamScan: C:\Program Files\ClamAV\clamscan.exe
+                </div>
+
+                <button class="btn" style="width: 100%; margin-bottom: 10px;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                  Configure Engine / Run Setup Wizard...
+                </button>
+
+                <div class="settings-row" style="margin-bottom: 0;">
+                  <label>clamd Socket / Host:</label>
+                  <input type="text" class="input-text" style="width: 160px;" value="127.0.0.1:3310" placeholder="127.0.0.1:3310">
+                </div>
+              </div>
+
+              <!-- Box 5: Monitored Folders (Max 2) -->
+              <div class="group-box">
+                <span class="group-box-title">Real-Time Monitored Folders (Max 2)</span>
+                <p style="color: var(--text-secondary); font-size: 11.5px; margin-bottom: 8px;">
+                  For optimal real-time performance, exactly two critical folders are monitored. Default: Desktop and Downloads.
+                </p>
+
+                <div style="margin-bottom: 6px;">
+                  <label style="font-size: 11.5px; color: var(--text-secondary);">Folder 1:</label>
+                  <div style="display: flex; gap: 6px; margin-top: 2px;">
+                    <input type="text" class="input-text" style="flex: 1;" value="C:\Users\User\Desktop">
+                    <button class="btn">Browse...</button>
+                  </div>
+                </div>
+
+                <div style="margin-bottom: 8px;">
+                  <label style="font-size: 11.5px; color: var(--text-secondary);">Folder 2:</label>
+                  <div style="display: flex; gap: 6px; margin-top: 2px;">
+                    <input type="text" class="input-text" style="flex: 1;" value="C:\Users\User\Downloads">
+                    <button class="btn">Browse...</button>
+                  </div>
+                </div>
+
+                <button class="btn" style="width: 100%;">Reset to Default Folders</button>
+              </div>
+
+              <!-- Box 6: User Profile & Diagnostics Telemetry (Opt-In) -->
+              <div class="group-box">
+                <span class="group-box-title">User Profile & Diagnostics Telemetry (Opt-In)</span>
+                <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                  <input type="text" id="demoUserIdInput" class="input-text" style="flex: 1;" value="Guest-9E2A71" placeholder="Name, Email, or Guest ID" title="Optional identifier, email, or guest ID for diagnostics and issue reporting">
+                  <button class="btn" id="demoBtnGuest" onclick="generateDemoGuestId(this)">New Guest ID</button>
+                </div>
+
+                <label class="form-check">
+                  <input type="checkbox" id="chkTelemMaster" onchange="toggleTelemetrySub(this.checked)">
+                  <span>Enable Anonymous Diagnostics & Crash Telemetry</span>
+                </label>
+
+                <div class="sub-options-box" id="telemSubWidget" style="opacity: 0.5;">
+                  <label class="form-check"><input type="checkbox" checked disabled><span>Share OS platform and architecture</span></label>
+                  <label class="form-check"><input type="checkbox" checked disabled><span>Share ClamAV engine & signature version</span></label>
+                  <label class="form-check"><input type="checkbox" checked disabled><span>Share protection & threat count metrics</span></label>
+                </div>
+
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn" style="flex: 1;">Preview Data</button>
+                  <button class="btn" style="flex: 1;">Send Test Report</button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Pinned Bottom Action Bar -->
+          <div class="settings-bottom-bar">
+            <div style="display: flex; gap: 8px;">
+              <button class="btn">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="1 4 1 10 7 10"/>
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                </svg>
+                Reset Defaults
+              </button>
+              <button class="btn">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+                Reload
+              </button>
+            </div>
+
+            <button class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                <polyline points="17 21 17 13 7 13 7 21"/>
+                <polyline points="7 3 7 8 15 8"/>
+              </svg>
+              Save Settings
+            </button>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           TAB PANE 5: ABOUT
+           ==================================================================== -->
+      <section class="tab-pane" id="pane-about" role="tabpanel">
+        <div class="tab-about-content custom-scroll">
+
+          <div class="about-header-box">
+            <div class="about-title">pyEGClamUI</div>
+            <div class="about-version">Version 3.0.0</div>
+          </div>
+
+          <div class="about-desc">
+            pyEGClamUI is a cross-platform desktop graphical user interface and manager for the ClamAV® antivirus engine. Built with Python and PySide6, it provides fast scanning, quarantine management, and real-time defense for Windows, Linux, and macOS.
+          </div>
+
+          <div class="about-credits">
+            <b>Developed by:</b> EG1 ( <a href="https://eg1.in" target="_blank" rel="noopener">https://eg1.in</a> )<br>
+            <b>Website:</b> <a href="https://av.eg1.in" target="_blank" rel="noopener">https://av.eg1.in</a><br>
+            <b>GitHub:</b> <a href="https://github.com/EG1DOTIN/pyEGClamUI" target="_blank" rel="noopener">https://github.com/EG1DOTIN/pyEGClamUI</a><br>
+            <b>License:</b> <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU General Public License v3.0 or later (GPL-3.0-or-later)</a>
+          </div>
+
+          <div class="group-box">
+            <span class="group-box-title">Diagnostics, Logs & Community Support</span>
+            <p style="color: var(--text-secondary); font-size: 12px; margin-bottom: 12px;">
+              Access local application error and scan report logs, or submit bug reports with screenshots to GitHub.
+            </p>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                Open Log Folder
+              </button>
+              <button class="btn btn-primary">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+                Report Issue / Diagnostics
+              </button>
+            </div>
+          </div>
+
+          <div class="disclaimer-card">
+            <b>Trademark Notice:</b> ClamAV® is a registered trademark of Cisco Systems, Inc. pyEGClamUI is an independent open-source frontend and is not affiliated with, endorsed by, or sponsored by Cisco Systems, Inc.
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- ========================================================================
+       MODAL PREVIEW: Active Scan Dialog (ScanDialog replica)
+       ======================================================================== -->
+  <div class="modal-overlay" id="scanModal">
+    <div class="modal-box">
+      <!-- Modal Titlebar -->
+      <div class="window-titlebar">
+        <div class="window-title">
+          <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+          <span id="modalWindowSubtitle">pyEGClamUI - Active Scan</span>
+        </div>
+        <div class="window-controls">
+          <div class="win-btn close" onclick="closeScanModal()">
+            <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1,0L0,1l4,4L0,9l1,1l4-4l4,4l1-1L6,5l4-4L9,0L5,4L1,0z" fill="currentColor"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+        <h3 style="color: var(--accent-sky); font-size: 16px; font-weight: bold;" id="modalScanHeader">
+          Running Quick Scan...
+        </h3>
+
+        <!-- Monospaced Active Scanned File -->
+        <div style="color: var(--text-secondary); font-family: monospace; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="modalCurrentFile">
+          Scanning: SystemFiles\Libraries\node_modules\webpack\lib\Compiler.js
+        </div>
+
+        <!-- Marquee Progress Bar -->
+        <div class="progress-bar-container">
+          <div class="progress-bar-indeterminate"></div>
+        </div>
+
+        <!-- Live Telemetry Stats Row -->
+        <div class="stats-card-row">
+          <div class="stats-card-item">Scanned Files: <span style="color: var(--accent-sky);" id="scannedFilesCounter">1,482</span></div>
+          <div class="stats-card-item" style="color: var(--accent-green);" id="modalThreatsCounter">Threats: 0</div>
+          <div class="stats-card-item" style="color: var(--text-secondary);" id="modalElapsedCounter">Elapsed: 12s</div>
+        </div>
+
+        <!-- Live Threats Table -->
+        <div style="height: 160px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; overflow-y: auto;" class="custom-scroll">
+          <table class="q-table">
+            <thead>
+              <tr>
+                <th style="width: 100px;">Time</th>
+                <th style="width: 180px;">Threat Name</th>
+                <th style="width: 130px;">Action Taken</th>
+                <th>File Path</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="color: var(--text-secondary);">14:22:10</td>
+                <td class="threat-tag">Eicar-Test-Signature</td>
+                <td style="color: var(--accent-sky);">Quarantined</td>
+                <td>C:\Users\User\Downloads\test-eicar.com</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Dialog Buttons -->
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px;">
+          <button class="btn btn-danger" onclick="closeScanModal()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Stop Scan
+          </button>
+          <button class="btn" onclick="closeScanModal()">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       Vanilla JS for UI Switching (Tabs, Status Banner Variants, Modals)
+       ======================================================================== -->
+  <script>
+    // Tab switching
+    function switchTab(index, btnElement) {
+      const tabButtons = document.querySelectorAll('.tab-btn');
+      const tabPanes = document.querySelectorAll('.tab-pane');
+
+      tabButtons.forEach(btn => {
+        btn.classList.remove('active');
+        btn.setAttribute('aria-selected', 'false');
+      });
+      tabPanes.forEach(pane => pane.classList.remove('active'));
+
+      btnElement.classList.add('active');
+      btnElement.setAttribute('aria-selected', 'true');
+      tabPanes[index].classList.add('active');
+    }
+
+    // Status Banner 3-Tier State Matrix Switcher
+    function setStatusState(state) {
+      const banner = document.getElementById('statusBanner');
+      const shieldPath = document.getElementById('shieldPath');
+      const checkmark = document.getElementById('shieldCheckmark');
+      const title = document.getElementById('bannerTitle');
+      const sub = document.getElementById('bannerSubtitle');
+      const btn = document.getElementById('bannerActionBtn');
+      const btnText = document.getElementById('bannerBtnText');
+      const badgeEngine = document.getElementById('badgeEngine');
+
+      // Update active toolbar button styling
+      document.getElementById('btn-state-protected').classList.toggle('active', state === 'protected');
+      document.getElementById('btn-state-warning').classList.toggle('active', state === 'warning');
+      document.getElementById('btn-state-danger').classList.toggle('active', state === 'danger');
+
+      banner.className = 'banner-card ' + state;
+
+      if (state === 'protected') {
+        shieldPath.setAttribute('stroke', '#22c55e');
+        shieldPath.setAttribute('fill', 'rgba(34, 197, 94, 0.12)');
+        checkmark.setAttribute('d', 'M22 32 L29 39 L43 25');
+        checkmark.setAttribute('stroke', '#22c55e');
+        title.innerText = 'System Protected';
+        sub.innerText = 'Real-time protection is active. Virus signatures are up-to-date.';
+        btn.className = 'btn btn-primary';
+        btnText.innerText = 'Check for Updates';
+        badgeEngine.innerHTML = '● Online';
+        badgeEngine.style.color = '#22c55e';
+        badgeEngine.style.borderColor = 'rgba(34, 197, 94, 0.3)';
+        badgeEngine.style.backgroundColor = 'rgba(34, 197, 94, 0.15)';
+      } else if (state === 'warning') {
+        shieldPath.setAttribute('stroke', '#eab308');
+        shieldPath.setAttribute('fill', 'rgba(234, 179, 8, 0.12)');
+        checkmark.setAttribute('d', 'M32 20 V34 M32 42 V44');
+        checkmark.setAttribute('stroke', '#eab308');
+        title.innerText = 'System at Risk';
+        sub.innerText = 'Real-Time Guard is disabled. Files are not automatically monitored.';
+        btn.className = 'btn btn-primary';
+        btnText.innerText = 'Enable Real-Time Guard';
+        badgeEngine.innerHTML = '● Online';
+        badgeEngine.style.color = '#22c55e';
+      } else if (state === 'danger') {
+        shieldPath.setAttribute('stroke', '#ef4444');
+        shieldPath.setAttribute('fill', 'rgba(239, 68, 68, 0.12)');
+        checkmark.setAttribute('d', 'M24 24 L40 40 M40 24 L24 40');
+        checkmark.setAttribute('stroke', '#ef4444');
+        title.innerText = 'Engine Not Detected';
+        sub.innerText = 'ClamAV was not found in PATH or configured folders. Please configure engine.';
+        btn.className = 'btn btn-danger';
+        btnText.innerText = 'Configure Engine...';
+        badgeEngine.innerHTML = '✕ Offline';
+        badgeEngine.style.color = '#ef4444';
+        badgeEngine.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+        badgeEngine.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
+      }
+    }
+
+    // Quarantine row selection
+    function selectQuarantineRow(rowElement) {
+      const rows = document.querySelectorAll('#quarantineTable tbody tr');
+      rows.forEach(r => r.classList.remove('selected'));
+      rowElement.classList.add('selected');
+    }
+
+    // Toggle Telemetry granular checkboxes
+    function toggleTelemetrySub(enabled) {
+      const widget = document.getElementById('telemSubWidget');
+      widget.style.opacity = enabled ? '1' : '0.5';
+      const inputs = widget.querySelectorAll('input[type="checkbox"]');
+      inputs.forEach(input => input.disabled = !enabled);
+    }
+
+    // Modal Scan Dialog Demo
+    function openScanModal(scanType = 'Quick Scan') {
+      const modal = document.getElementById('scanModal');
+      document.getElementById('modalWindowSubtitle').innerText = `pyEGClamUI - ${scanType}`;
+      document.getElementById('modalScanHeader').innerText = `Running ${scanType}...`;
+      modal.classList.add('open');
+    }
+
+    function closeScanModal() {
+      document.getElementById('scanModal').classList.remove('open');
+    }
+
+    // One-time demo Guest ID generator
+    function generateDemoGuestId(btn) {
+      const randDigits = Math.floor(10000000 + Math.random() * 90000000);
+      document.getElementById('demoUserIdInput').value = 'Guest' + randDigits;
+      btn.disabled = true;
+      btn.title = 'Guest ID already generated';
+      btn.style.opacity = '0.5';
+      btn.style.cursor = 'not-allowed';
+    }
+
+    // Close modal on Escape key
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeScanModal();
+      }
+    });
+  </script>
+</body>
+</html>

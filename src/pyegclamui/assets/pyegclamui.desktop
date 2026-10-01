@@ -1,0 +1,22 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=pyEGClamUI
+GenericName=Antivirus GUI
+Comment=An open-source, cross-platform desktop GUI for ClamAV
+Exec=pyegclamui %F
+Icon=pyegclamui
+Terminal=false
+StartupNotify=true
+Categories=Utility;System;Security;
+Keywords=clamav;antivirus;scanner;security;protection;malware;virus;
+MimeType=inode/directory;application/x-executable;application/x-ms-dos-executable;application/zip;application/x-tar;application/x-compressed-tar;application/x-bzip;application/x-7z-compressed;
+Actions=QuickScan;QuarantineVault;
+
+[Desktop Action QuickScan]
+Name=Run Quick Scan
+Exec=pyegclamui-scan --quick
+
+[Desktop Action QuarantineVault]
+Name=Open Quarantine Vault
+Exec=pyegclamui --quarantine
