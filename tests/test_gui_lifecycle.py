@@ -30,8 +30,11 @@ def qapp():
 def main_win(qapp, monkeypatch):
     from pyegclamui.core.config import Config
     from pyegclamui.core.daemon import ClamDaemonClient
+    from pyegclamui.core.monitor import RealTimeGuard
     Config.get_instance().set("preferences", "first_run_completed", True)
     monkeypatch.setattr(ClamDaemonClient, "check_connection", lambda self: (False, "Offline (mock)"))
+    monkeypatch.setattr(RealTimeGuard, "start", lambda self: True)
+    monkeypatch.setattr(RealTimeGuard, "stop", lambda self: None)
     win = MainWindow()
     yield win
     if hasattr(win, "guard") and win.guard:

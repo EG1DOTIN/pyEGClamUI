@@ -1424,7 +1424,8 @@ class MainWindow(QMainWindow):
         if checked:
             success = self.guard.start()
             if not success:
-                QMessageBox.warning(self, "Real-Time Guard", "Failed to start file guard. Check folder permissions.")
+                if os.getenv("QT_QPA_PLATFORM") != "offscreen" and "pytest" not in sys.modules:
+                    QMessageBox.warning(self, "Real-Time Guard", "Failed to start file guard. Check folder permissions.")
                 self.chk_realtime.setChecked(False)
         else:
             self.guard.stop()
