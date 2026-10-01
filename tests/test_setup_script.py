@@ -60,17 +60,24 @@ def test_setup_logger_callback():
 
 def test_venv_manager_paths():
     logger = SetupLogger()
-    venv_mgr = VenvManager(PROJECT_ROOT, logger)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_root = Path(tmpdir)
+        venv_mgr = VenvManager(fake_root, logger)
 
-    py_exe = venv_mgr.get_python_exe()
-    assert py_exe is not None
-    assert "python" in py_exe.name.lower()
+        py_exe = venv_mgr.get_python_exe()
+        assert py_exe is not None
+        assert "python" in py_exe.name.lower()
 
-    pyw_exe = venv_mgr.get_pythonw_exe()
-    assert pyw_exe is not None
+        pyw_exe = venv_mgr.get_pythonw_exe()
+        assert pyw_exe is not None
 
-    # .venv exists in this development repo
-    assert venv_mgr.exists() is True
+        # Does not exist in clean temporary directory
+        assert venv_mgr.exists() is False
+
+        # Create simulated executable
+        py_exe.parent.mkdir(parents=True, exist_ok=True)
+        py_exe.touch()
+        assert venv_mgr.exists() is True
 
 
 def test_shortcut_manager_linux_generation():

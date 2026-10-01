@@ -71,7 +71,8 @@ def test_register_path_environment():
         test_dir = Path(tmpdir)
         res = ClamEngineInstaller.register_path_environment(test_dir)
         assert res is True
-        assert str(test_dir).lower() in os.environ.get("PATH", "").lower()
+        path_env = os.environ.get("PATH", "").lower()
+        assert str(test_dir.resolve()).lower() in path_env or str(test_dir).lower() in path_env
 
 
 def test_setup_dialog_ui(setup_dialog):

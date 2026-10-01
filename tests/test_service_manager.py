@@ -56,8 +56,8 @@ def test_service_manager_uac_declined():
     mgr.client.check_connection.return_value = (False, "Offline")
 
     logs = []
-    # Mock subprocess.run returning exit code 1 (UAC declined)
-    with patch("subprocess.run") as mock_run:
+    # Mock subprocess.run returning exit code 1 (UAC declined) on Windows
+    with patch("sys.platform", "win32"), patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=1, stderr="Elevation was declined by user")
         success, msg = mgr.activate_daemon(on_log=logs.append)
         assert success is False
@@ -77,7 +77,7 @@ def test_service_manager_activate_success():
         (True, "TCP 127.0.0.1:3310"),  # Latency check
     ]
 
-    with patch("subprocess.run") as mock_run:
+    with patch("sys.platform", "win32"), patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stderr="")
         with patch.object(mgr, "measure_latency_ms", return_value=0.8):
             success, msg = mgr.activate_daemon()

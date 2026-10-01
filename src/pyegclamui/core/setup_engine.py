@@ -80,13 +80,19 @@ class ClamEngineInstaller:
             instructions = self.get_platform_install_instructions()
             if on_status:
                 on_status(instructions)
+            if on_log:
+                on_log(instructions)
             return False, f"Package installation on Linux requires package manager privileges:\n{instructions}"
         elif sys.platform == "darwin":
             instructions = self.get_platform_install_instructions()
             if on_status:
                 on_status(instructions)
+            if on_log:
+                on_log(instructions)
             return False, f"Package installation on macOS:\n{instructions}"
         else:
+            if on_log:
+                on_log(f"Unsupported platform: {sys.platform}")
             return False, f"Unsupported platform: {sys.platform}"
 
     @classmethod
