@@ -84,8 +84,9 @@ class StatusRefreshWorker(QThread):
         detector: ClamEngineDetector,
         updater: ClamUpdater,
         service_mgr: ClamDaemonServiceManager,
+        parent: Optional[QWidget] = None,
     ):
-        super().__init__()
+        super().__init__(parent)
         self.detector = detector
         self.updater = updater
         self.service_mgr = service_mgr
@@ -455,7 +456,7 @@ class MainWindow(QMainWindow):
 
         self._refresh_pending = False
         self._status_worker = StatusRefreshWorker(
-            self.detector, self.updater, self.service_mgr
+            self.detector, self.updater, self.service_mgr, parent=self
         )
         self._status_worker.status_ready.connect(self._apply_status_data)
         self._status_worker.finished.connect(self._on_status_worker_finished)
@@ -1799,7 +1800,9 @@ class MainWindow(QMainWindow):
         else:
             if self._status_worker and self._status_worker.isRunning():
                 self._status_worker.quit()
-                self._status_worker.wait(500)
+                if not self._status_worker.wait(500):
+                    self._status_worker.terminate()
+                    self._status_worker.wait(500)
             if self.guard:
                 self.guard.stop()
             super().closeEvent(event)

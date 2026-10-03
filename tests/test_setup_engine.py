@@ -14,14 +14,6 @@ from pyegclamui.core.setup_engine import ClamEngineInstaller
 from pyegclamui.gui.setup_dialog import ClamSetupDialog
 
 
-@pytest.fixture(scope="session")
-def qapp():
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    yield app
-    app.processEvents()
-
 
 @pytest.fixture
 def setup_dialog(qapp):
