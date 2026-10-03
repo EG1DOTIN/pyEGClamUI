@@ -24,7 +24,7 @@ def get_hidden_subprocess_kwargs() -> Dict[str, Any]:
     - On Linux / macOS: Standard POSIX environment without window creation.
     """
     kwargs: Dict[str, Any] = {}
-    if sys.platform == "win32":
+    if sys.platform == "win32" and hasattr(subprocess, "STARTUPINFO"):
         # Windows API flag: CREATE_NO_WINDOW prevents command prompt flashing
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 

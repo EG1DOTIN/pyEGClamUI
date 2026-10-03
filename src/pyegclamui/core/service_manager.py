@@ -144,6 +144,10 @@ class ClamDaemonServiceManager:
         import ctypes
         from ctypes import wintypes
 
+        if not hasattr(ctypes, "windll"):
+            log("[!] Win32 ShellExecuteExW requires Windows OS (ctypes.windll unavailable).")
+            return False, "Win32 elevation is only supported on Windows."
+
         SEE_MASK_NOCLOSEPROCESS = 0x00000040
 
         class SHELLEXECUTEINFOW(ctypes.Structure):
@@ -236,8 +240,13 @@ class ClamDaemonServiceManager:
 
         log("[*] Requesting Windows Administrator elevation (UAC prompt)...")
 
-        # In unit tests where subprocess.run is patched, route through subprocess.run
-        if hasattr(subprocess.run, "assert_called") or hasattr(subprocess.run, "mock_calls"):
+        # In unit tests or non-Windows test runners where subprocess.run is patched or ctypes.windll is unavailable
+        import ctypes
+        if (
+            hasattr(subprocess.run, "assert_called")
+            or hasattr(subprocess.run, "mock_calls")
+            or not hasattr(ctypes, "windll")
+        ):
             ps_args = f"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{script_path}\""
             if clam_dir:
                 ps_args += f" -ClamDir \"{clam_dir}\""

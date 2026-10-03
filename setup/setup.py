@@ -101,7 +101,7 @@ class SetupLogger:
 def get_hidden_subprocess_kwargs() -> Dict[str, Any]:
     """Returns platform kwargs to ensure 100% hidden window execution."""
     kwargs: Dict[str, Any] = {}
-    if sys.platform == "win32":
+    if sys.platform == "win32" and hasattr(subprocess, "STARTUPINFO"):
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0x00000001)
