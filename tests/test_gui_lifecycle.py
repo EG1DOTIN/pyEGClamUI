@@ -16,16 +16,6 @@ from pyegclamui.gui.update_dialog import ClamUpdateDialog, UpdateWorker
 from pyegclamui.core.scanner import ScanType, ScanReport
 
 
-@pytest.fixture(scope="session")
-def qapp():
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    yield app
-    app.processEvents()
-
-
-
 @pytest.fixture
 def main_win(qapp, monkeypatch):
     from pyegclamui.core.config import Config
@@ -39,6 +29,9 @@ def main_win(qapp, monkeypatch):
     yield win
     if hasattr(win, "guard") and win.guard:
         win.guard.stop()
+    if hasattr(win, "_status_worker") and win._status_worker and win._status_worker.isRunning():
+        win._status_worker.terminate()
+        win._status_worker.wait(1000)
     win.close()
     win.deleteLater()
     qapp.processEvents()
@@ -172,7 +165,7 @@ def test_update_dialog_and_worker(main_win, qapp):
     # 2. Test ClamUpdateDialog initialization and UI handlers
     mock_updater = MagicMock()
     mock_updater.run_update.return_value = (True, "Database updated successfully.")
-    dlg = ClamUpdateDialog(win, updater=mock_updater)
+    dlg = ClamUpdateDialog(win, updater=mock_updater, auto_start=False)
 
     assert "Virus Signature Update" in dlg.windowTitle()
     assert dlg.btn_close is not None
@@ -202,4 +195,28 @@ def test_update_dialog_and_worker(main_win, qapp):
     dlg.close()
     dlg.deleteLater()
     qapp.processEvents()
+
+
+def test_status_refresh_worker(main_win, qapp):
+    """Verifies that StatusRefreshWorker collects status metrics and updates the main window."""
+    win = main_win
+    from pyegclamui.gui.main_window import StatusRefreshWorker
+    worker = StatusRefreshWorker(win.detector, win.updater, win.service_mgr, parent=win)
+
+    received_data = {}
+    def on_ready(data):
+        received_data.update(data)
+
+    worker.status_ready.connect(on_ready)
+    worker.run()  # Run directly to verify data emission
+
+    assert "audit" in received_data
+    assert "is_recent" in received_data
+    assert "db_status_msg" in received_data
+    assert "d_status" in received_data
+
+    win._apply_status_data(received_data)
+    worker.deleteLater()
+    qapp.processEvents()
+
 

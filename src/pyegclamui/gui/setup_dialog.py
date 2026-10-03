@@ -300,6 +300,10 @@ class ClamSetupDialog(QDialog):
         if clamscan_cand.is_file():
             self.config.set("scan_settings", "custom_clamscan_path", str(clamscan_cand.resolve()))
 
+            clamdscan_cand = folder_path / "clamdscan.exe" if sys.platform == "win32" else folder_path / "clamdscan"
+            if clamdscan_cand.is_file():
+                self.config.set("scan_settings", "custom_clamdscan_path", str(clamdscan_cand.resolve()))
+
             clamd_cand = folder_path / "clamd.exe" if sys.platform == "win32" else folder_path / "clamd"
             if clamd_cand.is_file():
                 self.config.set("scan_settings", "custom_clamd_path", str(clamd_cand.resolve()))
@@ -341,5 +345,8 @@ class ClamSetupDialog(QDialog):
 
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():
-            self.worker.wait(1000)
+            self.worker.quit()
+            if not self.worker.wait(500):
+                self.worker.terminate()
+                self.worker.wait(500)
         super().closeEvent(event)

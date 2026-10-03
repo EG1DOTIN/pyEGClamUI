@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyegclamui"
-version = "3.0.0"
+dynamic = ["version"]
 description = "An open-source, cross-platform desktop GUI for ClamAV"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -62,6 +62,9 @@ pyegclamui = "pyegclamui.gui.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "pyegclamui.__version__"}
 
 [tool.setuptools.package-data]
 pyegclamui = ["assets/**/*", "assets/*"]

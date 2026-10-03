@@ -8,11 +8,13 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from pyegclamui.core.config import AppPaths, Config
 from pyegclamui.core.daemon import ClamDaemonClient
+from pyegclamui.core.process import run_hidden_process
 
 
 class ClamEngineDetector:
@@ -22,6 +24,14 @@ class ClamEngineDetector:
 
     def __init__(self):
         self.config = Config.get_instance()
+        self._cached_version: Optional[Tuple[float, Dict[str, Any]]] = None
+        self._cached_inspect: Optional[Tuple[float, Dict[str, Any]]] = None
+        self._cache_ttl: float = 6.0
+
+    def invalidate_cache(self) -> None:
+        """Clears cached inspect and engine version data."""
+        self._cached_version = None
+        self._cached_inspect = None
 
     @classmethod
     def get_standard_windows_paths(cls) -> List[Path]:
@@ -87,6 +97,9 @@ class ClamEngineDetector:
     def get_clamscan_path(self) -> Optional[str]:
         return self.find_executable("clamscan", "custom_clamscan_path")
 
+    def get_clamdscan_path(self) -> Optional[str]:
+        return self.find_executable("clamdscan", "custom_clamdscan_path")
+
     def get_clamd_path(self) -> Optional[str]:
         return self.find_executable("clamd", "custom_clamd_path")
 
@@ -101,33 +114,40 @@ class ClamEngineDetector:
         client = ClamDaemonClient()
         return client.check_connection()
 
-    def get_engine_version(self) -> Dict[str, any]:
+    def get_engine_version(self, force: bool = False) -> Dict[str, Any]:
         """
         Queries clamscan/clamd for version and signature database date.
-        Returns dictionary with 'clamav_version', 'db_version', 'db_date', 'raw'.
+        Returns cached dictionary if queried within cache_ttl unless force=True.
         """
+        now = time.time()
+        if not force and self._cached_version:
+            ts, cached_data = self._cached_version
+            if now - ts < self._cache_ttl:
+                return cached_data
+
         clamscan = self.get_clamscan_path()
         if not clamscan:
-            return {
+            res = {
                 "installed": False,
                 "clamav_version": "Not Found",
                 "db_version": "Unknown",
                 "db_date": "Unknown",
                 "raw": "clamscan executable not found in PATH"
             }
+            self._cached_version = (now, res)
+            return res
 
         try:
-            user_db = AppPaths.get_data_dir() / "database"
+            db_dir = AppPaths.get_database_dir()
             cmd = [clamscan, "--version"]
-            if user_db.is_dir() and any(user_db.glob("*.c*d")):
-                cmd.extend(["--database", str(user_db.resolve())])
+            if db_dir.is_dir() and any(db_dir.glob("*.c*d")):
+                cmd.extend(["--database", str(db_dir.resolve())])
 
-            result = subprocess.run(
+            result = run_hidden_process(
                 cmd,
                 capture_output=True,
-                text=True,
                 timeout=5,
-                check=False
+                check=False,
             )
             raw = result.stdout.strip() or result.stderr.strip()
             # Typical format: "ClamAV 1.4.1/27584/Mon Sep 21 08:30:00 2026"
@@ -136,7 +156,7 @@ class ClamEngineDetector:
             db_ver = parts[1].strip() if len(parts) > 1 else "Unknown"
             db_date = parts[2].strip() if len(parts) > 2 else "Unknown"
 
-            return {
+            res = {
                 "installed": True,
                 "clamav_version": clamav_ver,
                 "db_version": db_ver,
@@ -144,7 +164,7 @@ class ClamEngineDetector:
                 "raw": raw
             }
         except Exception as e:
-            return {
+            res = {
                 "installed": True,
                 "clamav_version": "ClamAV",
                 "db_version": "Error",
@@ -152,20 +172,33 @@ class ClamEngineDetector:
                 "raw": f"Failed to query clamscan: {e}"
             }
 
-    def inspect(self) -> Dict[str, any]:
-        """Full system audit of ClamAV availability."""
+        self._cached_version = (now, res)
+        return res
+
+    def inspect(self, force: bool = False) -> Dict[str, Any]:
+        """Full system audit of ClamAV availability with TTL caching."""
+        now = time.time()
+        if not force and self._cached_inspect:
+            ts, cached_data = self._cached_inspect
+            if now - ts < self._cache_ttl:
+                return cached_data
+
         clamscan = self.get_clamscan_path()
+        clamdscan = self.get_clamdscan_path()
         clamd = self.get_clamd_path()
         freshclam = self.get_freshclam_path()
         daemon_online, daemon_conn = self.check_daemon_socket()
-        version_info = self.get_engine_version()
+        version_info = self.get_engine_version(force=force)
 
-        return {
+        res = {
             "clamscan_path": clamscan,
+            "clamdscan_path": clamdscan,
             "clamd_path": clamd,
             "freshclam_path": freshclam,
             "daemon_online": daemon_online,
             "daemon_connection": daemon_conn,
             "version": version_info,
-            "ready": bool(clamscan or daemon_online),
+            "ready": bool(clamscan or clamdscan or daemon_online),
         }
+        self._cached_inspect = (now, res)
+        return res

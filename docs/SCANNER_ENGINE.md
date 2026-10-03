@@ -11,6 +11,7 @@ The scanning engine is the core detection pipeline of pyEGClamUI, designed with 
 * **Non-Blocking UI Concurrency**: All scanning operations execute inside dedicated background worker threads (`QThread`), communicating strictly via Qt Signals & Slots. The user interface remains fluid, responsive, and interactive throughout large scans.
 * **Dual-Engine Routing**: Automatically detects and leverages the resident ClamAV daemon (`clamd`) via socket streaming (`INSTREAM`) when available, achieving instantaneous sub-20ms file scans. When the daemon is absent, it seamlessly falls back to isolated `clamscan` subprocess execution.
 * **Strict Subprocess Isolation**: Subprocess execution **never utilizes `shell=True`**. Parameters and target paths are passed as discrete tokenized arrays, rendering shell injection and path-whitespace corruption impossible.
+* **Centric Hidden Window Execution**: All external commands (`clamscan`, `freshclam`, `clamdscan`, `winget`, `systemctl`) route through the centric hidden process engine ([`process.py`](../src/pyegclamui/core/process.py)). On Windows, it enforces `CREATE_NO_WINDOW` and `STARTUPINFO SW_HIDE`, preventing command prompt windows from ever flashing.
 * **Real-Time Stream Parsing**: Stdout output from ClamAV is parsed line-by-line using regular expressions as it occurs, updating file counters, threat alerts, and current paths with zero delay.
 
 ---
@@ -63,7 +64,7 @@ flowchart TD
     SendStream --> ReadResponse["Read Daemon Response: 'stream: OK' or 'stream: [threat] FOUND'"]
     
     SubprocessRoute --> BuildArgs["Construct Safe CLI Arguments: [--stdout, --bell, ...]"]
-    BuildArgs --> Spawn["subprocess.Popen(args, stdout=PIPE, bufsize=1)"]
+    BuildArgs --> Spawn["spawn_hidden_process(args, stdout=PIPE, bufsize=1)"]
     Spawn --> StreamRead["Iterate stdout line-by-line"]
     
     ReadResponse & StreamRead --> RegexParser["Regex Parser: Match Status, File, Threat"]
@@ -71,13 +72,13 @@ flowchart TD
 
 ### Performance & Overhead Comparison
 
-| Characteristic | Resident Daemon (`clamd`) | Subprocess (`clamscan`) |
+| Characteristic | Resident Daemon Client (`clamdscan`) | Standalone Scanner (`clamscan`) |
 | :--- | :--- | :--- |
-| **Execution Method** | ⚡ Unix Domain Socket or TCP `127.0.0.1:3310` | ⚪ Direct process spawning (`subprocess.Popen`) |
-| **Signature Loading** | 🟢 Loaded once into resident memory ($\sim 1.2\text{ GB}$) | 🟡 Re-read and decompressed from disk on every invocation |
-| **Single-File Latency** | ⚡ **$15 - 30\text{ ms}$** | 🟡 **$800 - 1500\text{ ms}$** |
-| **Multi-Gigabyte Folder** | ⚡ Chunk-streamed over socket | 🟢 Scans natively via recursive filesystem traversal |
-| **Best Suited For** | 🛡️ Real-Time Protection, single-file checks | 🛡️ Batch recursive scans, environments without daemon |
+| **Execution Method** | ⚡ Client process connecting to `clamd` (Unix/TCP) | ⚪ Standalone monolithic process (`subprocess.Popen`) |
+| **Signature Loading** | 🟢 Loaded once into ClamD RAM ($\sim 1.2\text{ GB}$) | 🟡 Re-read & decompressed from disk on every invocation ($\sim 20\text{ s}$) |
+| **Single-File Latency** | ⚡ **$8 - 30\text{ ms}$** | 🟡 **$15 - 25\text{ s}$** (initial DB load overhead) |
+| **Multi-Core Scaling** | ⚡ `--multiscan` utilizes all available CPU cores | ⚪ Single-threaded directory traversal |
+| **Best Suited For** | 🛡️ Quick, Full, and Custom scans when ClamD is active | 🛡️ Standalone environments where ClamD is stopped |
 
 ---
 

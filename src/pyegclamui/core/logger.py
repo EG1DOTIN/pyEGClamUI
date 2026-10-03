@@ -226,10 +226,12 @@ def open_log_folder() -> bool:
             os.startfile(str(logs_dir))
             return True
         elif sys.platform == "darwin":
-            subprocess.run(["open", str(logs_dir)], check=False)
+            from pyegclamui.core.process import run_hidden_process
+            run_hidden_process(["open", str(logs_dir)], check=False)
             return True
         else:
-            subprocess.run(["xdg-open", str(logs_dir)], check=False)
+            from pyegclamui.core.process import run_hidden_process
+            run_hidden_process(["xdg-open", str(logs_dir)], check=False)
             return True
     except Exception as e:
         logger = get_logger("logger")

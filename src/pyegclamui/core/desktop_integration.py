@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from pyegclamui.core.config import AppPaths
+from pyegclamui.core.process import run_hidden_process
 
 
 class LinuxDesktopManager:
@@ -153,7 +154,7 @@ class LinuxDesktopManager:
         update_db = shutil.which("update-desktop-database")
         if update_db and apps_dir.exists():
             try:
-                subprocess.run([update_db, str(apps_dir)], capture_output=True, timeout=5, check=False)
+                run_hidden_process([update_db, str(apps_dir)], capture_output=True, timeout=5, check=False)
             except Exception:
                 pass
 
@@ -162,7 +163,7 @@ class LinuxDesktopManager:
             base_icon_dir = apps_dir.parent / "icons" / "hicolor"
             if base_icon_dir.exists():
                 try:
-                    subprocess.run(
+                    run_hidden_process(
                         [icon_cache, "-f", "-t", str(base_icon_dir)],
                         capture_output=True,
                         timeout=5,

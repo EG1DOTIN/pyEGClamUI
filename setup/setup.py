@@ -23,7 +23,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 
 # ------------------------------------------------------------------------------
@@ -93,6 +93,75 @@ class SetupLogger:
     def exec(self, command_str: str):
         if self.verbose:
             self._emit("EXEC", Colors.MAGENTA, command_str, "exec")
+
+
+# ------------------------------------------------------------------------------
+# Centric Cross-Platform Hidden Subprocess Execution
+# ------------------------------------------------------------------------------
+def get_hidden_subprocess_kwargs() -> Dict[str, Any]:
+    """Returns platform kwargs to ensure 100% hidden window execution."""
+    kwargs: Dict[str, Any] = {}
+    if sys.platform == "win32" and hasattr(subprocess, "STARTUPINFO"):
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0x00000001)
+        startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
+
+
+def spawn_hidden_process(
+    cmd: List[Any],
+    stdout: Any = subprocess.PIPE,
+    stderr: Any = subprocess.STDOUT,
+    text: bool = True,
+    bufsize: int = 1,
+    cwd: Optional[Union[str, Path]] = None,
+    **kwargs: Any,
+) -> subprocess.Popen:
+    """Spawns an asynchronous streaming background subprocess with guaranteed hidden window."""
+    normalized_cmd = [str(arg) for arg in cmd]
+    process_kwargs = get_hidden_subprocess_kwargs()
+    process_kwargs.update(kwargs)
+    if text and "encoding" not in process_kwargs and "errors" not in process_kwargs:
+        process_kwargs["encoding"] = "utf-8"
+        process_kwargs["errors"] = "replace"
+    return subprocess.Popen(
+        normalized_cmd,
+        stdout=stdout,
+        stderr=stderr,
+        text=text,
+        bufsize=bufsize,
+        cwd=str(cwd) if cwd else None,
+        **process_kwargs,
+    )
+
+
+def run_hidden_process(
+    cmd: List[Any],
+    capture_output: bool = True,
+    text: bool = True,
+    timeout: Optional[float] = None,
+    check: bool = False,
+    cwd: Optional[Union[str, Path]] = None,
+    **kwargs: Any,
+) -> subprocess.CompletedProcess:
+    """Executes a command synchronously to completion with guaranteed hidden window."""
+    normalized_cmd = [str(arg) for arg in cmd]
+    process_kwargs = get_hidden_subprocess_kwargs()
+    process_kwargs.update(kwargs)
+    if text and "encoding" not in process_kwargs and "errors" not in process_kwargs:
+        process_kwargs["encoding"] = "utf-8"
+        process_kwargs["errors"] = "replace"
+    return subprocess.run(
+        normalized_cmd,
+        capture_output=capture_output,
+        text=text,
+        timeout=timeout,
+        check=check,
+        cwd=str(cwd) if cwd else None,
+        **process_kwargs,
+    )
 
 
 # ------------------------------------------------------------------------------
@@ -225,7 +294,7 @@ class VenvManager:
             self.logger.warn(f"Standard venv module failed ({e}), falling back to subprocess...")
             cmd = [sys.executable, "-m", "venv", str(self.venv_dir)]
             self.logger.exec(" ".join(cmd))
-            res = subprocess.run(cmd, capture_output=True, text=True)
+            res = run_hidden_process(cmd, capture_output=True)
             if res.returncode == 0:
                 self.logger.ok("Virtual environment (.venv) created via subprocess.")
                 return True
@@ -243,20 +312,19 @@ class VenvManager:
         self.logger.info("Upgrading core build utilities (pip, setuptools, wheel)...")
         upgrade_cmd = [str(py_exe), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"]
         self.logger.exec(" ".join(upgrade_cmd))
-        subprocess.run(upgrade_cmd, capture_output=not self.logger.verbose)
+        run_hidden_process(upgrade_cmd, capture_output=not self.logger.verbose)
 
         # 2. Install project in editable development mode
         self.logger.info("Installing pyEGClamUI and dependencies into .venv...")
         install_cmd = [str(py_exe), "-m", "pip", "install", "-e", str(self.project_root)]
         self.logger.exec(" ".join(install_cmd))
 
-        process = subprocess.Popen(
+        process = spawn_hidden_process(
             install_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
             bufsize=1,
-            cwd=str(self.project_root)
+            cwd=str(self.project_root),
         )
 
         for line in iter(process.stdout.readline, ""):
@@ -296,7 +364,7 @@ class ClamAVProvisioner:
                 self.logger.info("Installing ClamAV via Windows Package Manager (winget)...")
                 cmd = ["winget", "install", "ClamAV.ClamAV", "--accept-source-agreements", "--accept-package-agreements", "--silent"]
                 self.logger.exec(" ".join(cmd))
-                res = subprocess.run(cmd, text=True)
+                res = run_hidden_process(cmd)
                 if res.returncode == 0 or self.detector.get_clamscan_path():
                     self.logger.ok("ClamAV installed successfully via winget.")
                     self.configure_windows_daemon()
@@ -311,19 +379,19 @@ class ClamAVProvisioner:
             pm = self.detector.detect_package_manager()
             if pm == "apt":
                 self.logger.info("Installing ClamAV on Debian/Ubuntu (requires sudo)...")
-                cmd = ["sudo", "apt", "update", "&&", "sudo", "apt", "install", "-y", "clamav", "clamav-daemon"]
-                subprocess.run(" ".join(cmd), shell=True)
+                run_hidden_process(["sudo", "apt-get", "update"])
+                run_hidden_process(["sudo", "apt-get", "install", "-y", "clamav", "clamav-daemon"])
             elif pm == "dnf":
                 self.logger.info("Installing ClamAV on Fedora/RHEL (requires sudo)...")
-                subprocess.run("sudo dnf install -y clamav clamd clamav-update", shell=True)
+                run_hidden_process(["sudo", "dnf", "install", "-y", "clamav", "clamd", "clamav-update"])
             elif pm == "pacman":
                 self.logger.info("Installing ClamAV on Arch Linux (requires sudo)...")
-                subprocess.run("sudo pacman -S --noconfirm clamav", shell=True)
+                run_hidden_process(["sudo", "pacman", "-S", "--noconfirm", "clamav"])
 
         elif self.detector.os_type == "darwin":
             if shutil.which("brew"):
                 self.logger.info("Installing ClamAV via Homebrew...")
-                subprocess.run(["brew", "install", "clamav"])
+                run_hidden_process(["brew", "install", "clamav"])
             else:
                 self.logger.warn("Homebrew not found. Please install Homebrew or ClamAV manually.")
 
@@ -340,7 +408,7 @@ class ClamAVProvisioner:
         elif self.detector.os_type.startswith("linux"):
             self.logger.info("Activating clamav-daemon service on Linux...")
             try:
-                res = subprocess.run(["sudo", "systemctl", "enable", "--now", "clamav-daemon"])
+                res = run_hidden_process(["sudo", "systemctl", "enable", "--now", "clamav-daemon"])
                 if res.returncode == 0 or self.detector.is_daemon_running():
                     self.logger.ok("clamav-daemon service activated.")
                 else:
@@ -351,7 +419,7 @@ class ClamAVProvisioner:
             if shutil.which("brew"):
                 self.logger.info("Starting ClamAV background service via Homebrew...")
                 try:
-                    subprocess.run(["brew", "services", "start", "clamav"])
+                    run_hidden_process(["brew", "services", "start", "clamav"])
                     if self.detector.is_daemon_running():
                         self.logger.ok("ClamAV daemon service activated via Homebrew.")
                 except Exception as e:
@@ -360,13 +428,13 @@ class ClamAVProvisioner:
     def remove_daemon_service(self):
         """Stops and unregisters the ClamAV daemon background service across platforms."""
         if self.detector.os_type == "win32":
-            self.logger.info("Stopping and unregistering 'ClamAV ClamD' Windows Service...")
+            self.logger.info("Stopping and unregistering 'clamd' Windows Service...")
             clamav_dir = Path("C:/Program Files/ClamAV")
             clamd_exe = clamav_dir / "clamd.exe"
             try:
-                subprocess.run(
-                    ["powershell", "-NoProfile", "-Command", "Stop-Service -Name 'ClamAV ClamD' -Force -ErrorAction SilentlyContinue"],
-                    capture_output=True
+                run_hidden_process(
+                    ["powershell", "-NoProfile", "-Command", "Stop-Service -Name 'clamd' -Force -ErrorAction SilentlyContinue"],
+                    capture_output=True,
                 )
             except Exception:
                 pass
@@ -374,7 +442,7 @@ class ClamAVProvisioner:
             removed = False
             if clamd_exe.is_file():
                 try:
-                    res = subprocess.run([str(clamd_exe), "--remove-service"], capture_output=True)
+                    res = run_hidden_process([str(clamd_exe), "--uninstall-service"], capture_output=True)
                     if res.returncode == 0:
                         removed = True
                 except Exception:
@@ -382,7 +450,7 @@ class ClamAVProvisioner:
 
             if not removed:
                 try:
-                    res = subprocess.run(["sc.exe", "delete", "ClamAV ClamD"], capture_output=True)
+                    res = run_hidden_process(["sc.exe", "delete", "clamd"], capture_output=True)
                     if res.returncode == 0:
                         removed = True
                 except Exception:
@@ -391,12 +459,12 @@ class ClamAVProvisioner:
             if removed or not self.detector.is_daemon_running():
                 self.logger.ok("ClamAV daemon Windows Service removed.")
             else:
-                self.logger.warn("Administrator privileges required to unregister service. Run 'sc.exe delete \"ClamAV ClamD\"' as Admin.")
+                self.logger.warn("Administrator privileges required to unregister service. Run 'sc.exe delete clamd' as Admin.")
 
         elif self.detector.os_type.startswith("linux"):
             self.logger.info("Stopping and disabling clamav-daemon service on Linux...")
             try:
-                res = subprocess.run(["sudo", "systemctl", "disable", "--now", "clamav-daemon"])
+                res = run_hidden_process(["sudo", "systemctl", "disable", "--now", "clamav-daemon"])
                 if res.returncode == 0:
                     self.logger.ok("clamav-daemon service disabled and stopped.")
                 else:
@@ -408,7 +476,7 @@ class ClamAVProvisioner:
             if shutil.which("brew"):
                 self.logger.info("Stopping ClamAV service via Homebrew...")
                 try:
-                    subprocess.run(["brew", "services", "stop", "clamav"])
+                    run_hidden_process(["brew", "services", "stop", "clamav"])
                     self.logger.ok("ClamAV background service stopped via Homebrew.")
                 except Exception as e:
                     self.logger.warn(f"Failed to stop brew service: {e}")
@@ -424,11 +492,16 @@ class ClamAVProvisioner:
             return
 
         # Check if helper script is available
-        service_script = Path(__file__).resolve().parent / "setup_clamd_service.ps1"
+        setup_dir = Path(__file__).resolve().parent
+        candidate_scripts = [
+            setup_dir / "windows" / "setup_clamd_service.ps1",
+            setup_dir / "setup_clamd_service.ps1",
+        ]
+        service_script = next((s for s in candidate_scripts if s.is_file()), candidate_scripts[0])
         if service_script.is_file():
             self.logger.info("Configuring ClamAV resident service (UAC prompt will appear to authorize service registration)...")
             cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(service_script)]
-            subprocess.run(cmd)
+            run_hidden_process(cmd)
             # Recheck with polling after script completes
             for _ in range(6):
                 time.sleep(1)
@@ -451,6 +524,9 @@ class ClamAVProvisioner:
                 lines.append("\n# Added by pyEGClamUI")
                 lines.append("TCPSocket 3310")
                 lines.append("TCPAddr 127.0.0.1")
+                user_db = Path.home() / "AppData" / "Local" / "pyEGClamUI" / "database"
+                if user_db.is_dir():
+                    lines.append(f'DatabaseDirectory "{user_db.as_posix()}"')
                 clamd_conf.write_text("\n".join(lines) + "\n", encoding="utf-8")
                 self.logger.ok("Generated clamd.conf with TCPSocket 3310 enabled.")
             except Exception as e:
@@ -469,9 +545,9 @@ class ClamAVProvisioner:
 
         clamd_exe = clamav_dir / "clamd.exe"
         if clamd_exe.is_file():
-            self.logger.info("Installing and starting 'ClamAV ClamD' background Windows Service...")
-            subprocess.run([str(clamd_exe), "--install-service"], capture_output=True)
-            subprocess.run(["powershell", "-Command", "Start-Service -Name 'ClamAV ClamD' -ErrorAction SilentlyContinue"], capture_output=True)
+            self.logger.info("Installing and starting 'clamd' background Windows Service...")
+            run_hidden_process([str(clamd_exe), "--install-service"], capture_output=True)
+            run_hidden_process(["powershell", "-Command", "Start-Service -Name 'clamd' -ErrorAction SilentlyContinue"], capture_output=True)
 
     def update_signatures(self) -> bool:
         """Executes freshclam to download latest virus definitions."""
@@ -483,7 +559,7 @@ class ClamAVProvisioner:
         self.logger.info("Updating virus signatures via freshclam (this may take a moment)...")
         cmd = [str(fc_path)]
         self.logger.exec(" ".join(cmd))
-        res = subprocess.run(cmd, capture_output=not self.logger.verbose, text=True)
+        res = run_hidden_process(cmd, capture_output=not self.logger.verbose)
         if res.returncode == 0:
             self.logger.ok("Virus definitions successfully updated.")
             return True
@@ -585,7 +661,7 @@ class ShortcutManager:
         foreach ($TargetPath in $Targets) {{
             $Shortcut = $WshShell.CreateShortcut($TargetPath)
             $Shortcut.TargetPath = '{str(pythonw_exe)}'
-            $Shortcut.Arguments = '-m pyegclamui'
+            $Shortcut.Arguments = 'main.py'
             $Shortcut.WorkingDirectory = '{str(self.project_root)}'
             $Shortcut.IconLocation = '{str(self.icon_ico)},0'
             $Shortcut.Description = 'pyEGClamUI - ClamAV Antivirus Desktop Interface'
@@ -594,7 +670,7 @@ class ShortcutManager:
         """
 
         try:
-            subprocess.run(["powershell", "-Command", ps_script], check=True, capture_output=True)
+            run_hidden_process(["powershell", "-Command", ps_script], check=True, capture_output=True)
             self.logger.ok(f"Desktop shortcut created: {targets[0]}")
             self.logger.ok(f"Start Menu entry created: {targets[1]}")
             return True
@@ -668,7 +744,7 @@ class GlobalUpdater:
         # 1. Update Git repository if applicable
         if (self.project_root / ".git").is_dir() and shutil.which("git"):
             self.logger.info("Checking for pyEGClamUI updates from git remote repository...")
-            res = subprocess.run(["git", "pull", "--ff-only"], cwd=str(self.project_root), capture_output=True, text=True)
+            res = run_hidden_process(["git", "pull", "--ff-only"], cwd=str(self.project_root), capture_output=True)
             if res.returncode == 0:
                 self.logger.ok(f"Git pull: {res.stdout.strip()}")
             else:
@@ -685,7 +761,7 @@ class GlobalUpdater:
         # 4. Check for ClamAV engine binary upgrades
         if sys.platform == "win32" and shutil.which("winget"):
             self.logger.info("Checking for ClamAV engine binary upgrades via winget...")
-            subprocess.run(["winget", "upgrade", "ClamAV.ClamAV", "--silent"], capture_output=True)
+            run_hidden_process(["winget", "upgrade", "ClamAV.ClamAV", "--silent"], capture_output=True)
 
         self.logger.ok("Global update sequence completed successfully.")
         return True
@@ -965,7 +1041,7 @@ Examples:
     if args.update:
         updater.execute_update()
         if args.start:
-            subprocess.Popen([str(venv_mgr.get_python_exe()), "-m", "pyegclamui"], cwd=str(project_root))
+            spawn_hidden_process([str(venv_mgr.get_python_exe()), "-m", "pyegclamui"], cwd=str(project_root))
         sys.exit(0)
 
     # 5. Default Action: Full Installation
@@ -1020,7 +1096,7 @@ Examples:
 
     if args.start:
         logger.info("Launching pyEGClamUI...")
-        subprocess.Popen([str(venv_mgr.get_python_exe()), "-m", "pyegclamui"], cwd=str(project_root))
+        spawn_hidden_process([str(venv_mgr.get_python_exe()), "-m", "pyegclamui"], cwd=str(project_root))
 
 
 if __name__ == "__main__":

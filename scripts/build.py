@@ -37,10 +37,20 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-try:
-    from pyegclamui import __version__
-except ImportError:
-    __version__ = "3.0.0"
+def _resolve_version() -> str:
+    try:
+        from pyegclamui import __version__
+        return __version__
+    except ImportError:
+        init_file = REPO_ROOT / "src" / "pyegclamui" / "__init__.py"
+        if init_file.is_file():
+            import re
+            m = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', init_file.read_text(encoding="utf-8"))
+            if m:
+                return m.group(1).strip()
+        raise RuntimeError("Unable to dynamically resolve application version from src/pyegclamui/__init__.py")
+
+__version__ = _resolve_version()
 
 
 def get_platform_info() -> dict:
@@ -114,6 +124,8 @@ def run_pyinstaller(plat_info: dict, onefile: bool = True) -> Path:
         "--name",
         "pyEGClamUI" if plat_info["os_name"] != "linux" else "pyegclamui",
         "--windowed",
+        "--paths",
+        str(REPO_ROOT / "src"),
         "--add-data",
         data_arg,
         "--collect-all",

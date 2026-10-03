@@ -83,3 +83,42 @@ def test_service_manager_activate_success():
             success, msg = mgr.activate_daemon()
             assert success is True
             assert "active" in msg.lower()
+
+
+def test_service_manager_activate_windows_passes_database_dir():
+    mock_detector = MagicMock()
+    mock_detector.get_clamscan_path.return_value = "C:/Program Files/ClamAV/clamscan.exe"
+    mgr = ClamDaemonServiceManager(mock_detector)
+    mgr.client = MagicMock()
+    mgr.client.check_connection.return_value = (False, "Offline")
+
+    with patch("sys.platform", "win32"), patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        # Fast-fail after 1 poll iteration to test args
+        with patch("time.sleep", return_value=None):
+            mgr.activate_daemon(timeout_seconds=0.01)
+
+        # Ensure subprocess.run was called with -DatabaseDir in argument list
+        called_cmd = mock_run.call_args[0][0]
+        cmd_str = " ".join(called_cmd)
+        assert "-DatabaseDir" in cmd_str
+        assert "-ClamDir" in cmd_str
+
+
+def test_service_manager_activate_progress_logging():
+    mock_detector = MagicMock()
+    mock_detector.get_clamscan_path.return_value = "C:/Program Files/ClamAV/clamscan.exe"
+    mgr = ClamDaemonServiceManager(mock_detector)
+    mgr.client = MagicMock()
+    mgr.client.check_connection.return_value = (False, "Offline")
+
+    logs = []
+    with patch("sys.platform", "win32"), patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        with patch("time.sleep", return_value=None):
+            # Run with tiny timeout
+            success, msg = mgr.activate_daemon(on_log=logs.append, timeout_seconds=0.05)
+            assert success is False
+            assert "did not respond in time" in msg
+            assert any("Verifying ClamD socket" in l for l in logs)
+

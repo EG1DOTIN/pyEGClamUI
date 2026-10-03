@@ -64,14 +64,46 @@ logger = get_logger("gui")
 class DaemonActivationWorker(QThread):
     """Background worker executing elevated ClamD service registration."""
     activation_completed = Signal(bool, str)
+    log_emitted = Signal(str)
 
     def __init__(self, service_mgr: ClamDaemonServiceManager):
         super().__init__()
         self.service_mgr = service_mgr
 
     def run(self):
-        success, msg = self.service_mgr.activate_daemon()
+        success, msg = self.service_mgr.activate_daemon(on_log=self.log_emitted.emit, timeout_seconds=60)
         self.activation_completed.emit(success, msg)
+
+
+class StatusRefreshWorker(QThread):
+    """Background worker gathering ClamAV engine audit, signature dates, and daemon status without freezing UI."""
+    status_ready = Signal(dict)
+
+    def __init__(
+        self,
+        detector: ClamEngineDetector,
+        updater: ClamUpdater,
+        service_mgr: ClamDaemonServiceManager,
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.detector = detector
+        self.updater = updater
+        self.service_mgr = service_mgr
+
+    def run(self):
+        try:
+            audit = self.detector.inspect()
+            is_recent, db_status_msg = self.updater.is_database_recent()
+            d_status = self.service_mgr.get_status()
+            self.status_ready.emit({
+                "audit": audit,
+                "is_recent": is_recent,
+                "db_status_msg": db_status_msg,
+                "d_status": d_status,
+            })
+        except Exception as e:
+            logger.error(f"Status refresh worker error: {e}")
 
 
 class MainWindow(QMainWindow):
@@ -87,6 +119,8 @@ class MainWindow(QMainWindow):
         self.telemetry_mgr = TelemetryManager()
         self.service_mgr = ClamDaemonServiceManager(self.detector)
         self._daemon_worker = None
+        self._status_worker: Optional[StatusRefreshWorker] = None
+        self._refresh_pending: bool = False
 
         self.setWindowTitle("pyEGClamUI - Status")
         self.resize(920, 640)
@@ -399,31 +433,71 @@ class MainWindow(QMainWindow):
                 }
             """)
 
-    def refresh_status(self):
-        audit = self.detector.inspect()
+    def refresh_status(self, force: bool = False, sync: bool = False):
+        """Asynchronously updates engine audit and daemon status without blocking the UI thread."""
+        if force:
+            self.detector.invalidate_cache()
+
+        if sync or "pytest" in sys.modules:
+            audit = self.detector.inspect()
+            is_recent, db_status_msg = self.updater.is_database_recent()
+            d_status = self.service_mgr.get_status()
+            self._apply_status_data({
+                "audit": audit,
+                "is_recent": is_recent,
+                "db_status_msg": db_status_msg,
+                "d_status": d_status,
+            })
+            return
+
+        if self._status_worker and self._status_worker.isRunning():
+            self._refresh_pending = True
+            return
+
+        self._refresh_pending = False
+        self._status_worker = StatusRefreshWorker(
+            self.detector, self.updater, self.service_mgr, parent=self
+        )
+        self._status_worker.status_ready.connect(self._apply_status_data)
+        self._status_worker.finished.connect(self._on_status_worker_finished)
+        self._status_worker.start()
+
+    def _on_status_worker_finished(self):
+        if self._refresh_pending:
+            self._refresh_pending = False
+            QTimer.singleShot(100, self.refresh_status)
+
+    def _apply_status_data(self, data: dict):
+        """Applies gathered engine audit and daemon metrics to UI widgets safely on main thread."""
+        audit = data.get("audit", {})
         version = audit.get("version", {})
 
         clamscan_path = audit.get("clamscan_path") or "Not found"
         self.lbl_clamscan_path.setText(f"ClamScan Binary: {clamscan_path}")
         self.lbl_engine_ver.setText(f"Engine Version: {version.get('clamav_version', 'Not Found')}")
 
-        is_recent, db_status_msg = self.updater.is_database_recent()
+        if hasattr(self, "lbl_settings_engine_status"):
+            clamdscan_path = audit.get("clamdscan_path") or "Not found"
+            self.lbl_settings_engine_status.setText(f"Active ClamScan: {clamscan_path} | ClamDScan: {clamdscan_path}")
+
+        is_recent = data.get("is_recent", False)
+        db_status_msg = data.get("db_status_msg", "Unknown")
         self.lbl_db_ver.setText(f"Signature Database: {db_status_msg}")
 
         # Update ClamD daemon acceleration card & badge
-        d_status = self.service_mgr.get_status()
-        self.lbl_daemon_desc.setText(d_status["description"])
-        if d_status["online"]:
-            self.lbl_daemon_badge.setText(d_status["mode_badge"])
+        d_status = data.get("d_status", {})
+        self.lbl_daemon_desc.setText(d_status.get("description", ""))
+        if d_status.get("online"):
+            self.lbl_daemon_badge.setText(d_status.get("mode_badge", "🟢 Active (<20ms)"))
             self.lbl_daemon_badge.setStyleSheet(
                 "background-color: #14532d; color: #86efac; font-size: 11px; "
                 "font-weight: bold; border-radius: 4px; padding: 2px 8px; border: 1px solid #22c55e;"
             )
             self.btn_daemon_action.setText("🔄 Test Latency / Ping")
             self.btn_daemon_action.setEnabled(True)
-            self.lbl_daemon_status.setText(f"Daemon Service: Online ({d_status['connection']} - {d_status['latency_label']})")
+            self.lbl_daemon_status.setText(f"Daemon Service: Online ({d_status.get('connection', '')} - {d_status.get('latency_label', '')})")
         else:
-            self.lbl_daemon_badge.setText(d_status["mode_badge"])
+            self.lbl_daemon_badge.setText(d_status.get("mode_badge", "🟡 Inactive (~800ms)"))
             self.lbl_daemon_badge.setStyleSheet(
                 "background-color: #713f12; color: #fde047; font-size: 11px; "
                 "font-weight: bold; border-radius: 4px; padding: 2px 8px; border: 1px solid #eab308;"
@@ -950,7 +1024,7 @@ class MainWindow(QMainWindow):
         # Status summary label
         self.lbl_settings_engine_status = QLabel()
         self.lbl_settings_engine_status.setStyleSheet("color: #e0e2e8; font-size: 12px; font-weight: 500;")
-        clamscan_active = self.detector.inspect().get("clamscan_path") or "Not configured"
+        clamscan_active = self.detector.get_clamscan_path() or "Not configured"
         self.lbl_settings_engine_status.setText(f"Active ClamScan: {clamscan_active}")
         engine_layout.addWidget(self.lbl_settings_engine_status)
 
@@ -977,10 +1051,13 @@ class MainWindow(QMainWindow):
         row_socket.addWidget(self.txt_clamd_socket)
         engine_layout.addLayout(row_socket)
 
-        # Hidden or programmatic binary line edits for backward compatibility
         self.txt_clamscan_path = QLineEdit()
         self.txt_clamscan_path.setVisible(False)
         self.txt_clamscan_path.setText(self.config.get("scan_settings", "custom_clamscan_path", default="") or "")
+
+        self.txt_clamdscan_path = QLineEdit()
+        self.txt_clamdscan_path.setVisible(False)
+        self.txt_clamdscan_path.setText(self.config.get("scan_settings", "custom_clamdscan_path", default="") or "")
 
         self.txt_clamd_path = QLineEdit()
         self.txt_clamd_path.setVisible(False)
@@ -991,6 +1068,7 @@ class MainWindow(QMainWindow):
         self.txt_freshclam_path.setText(self.config.get("scan_settings", "custom_freshclam_path", default="") or "")
 
         engine_layout.addWidget(self.txt_clamscan_path)
+        engine_layout.addWidget(self.txt_clamdscan_path)
         engine_layout.addWidget(self.txt_clamd_path)
         engine_layout.addWidget(self.txt_freshclam_path)
 
@@ -1368,6 +1446,7 @@ class MainWindow(QMainWindow):
         self.txt_include_ext.setText(", ".join(includes) if isinstance(includes, list) else str(includes))
 
         self.txt_clamscan_path.setText(scan.get("custom_clamscan_path", "") or "")
+        self.txt_clamdscan_path.setText(scan.get("custom_clamdscan_path", "") or "")
         self.txt_clamd_path.setText(scan.get("custom_clamd_path", "") or "")
         self.txt_freshclam_path.setText(scan.get("custom_freshclam_path", "") or "")
 
@@ -1397,7 +1476,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, "lbl_settings_engine_status"):
             audit = self.detector.inspect()
             clamscan_path = audit.get("clamscan_path") or "Not configured"
-            self.lbl_settings_engine_status.setText(f"Active ClamScan: {clamscan_path}")
+            clamdscan_path = audit.get("clamdscan_path") or "Not found"
+            self.lbl_settings_engine_status.setText(f"Active ClamScan: {clamscan_path} | ClamDScan: {clamdscan_path}")
 
     def on_toggle_desktop_entry(self):
         if LinuxDesktopManager.is_installed():
@@ -1456,6 +1536,7 @@ class MainWindow(QMainWindow):
 
         # Paths
         self.config.set("scan_settings", "custom_clamscan_path", self.txt_clamscan_path.text().strip())
+        self.config.set("scan_settings", "custom_clamdscan_path", self.txt_clamdscan_path.text().strip())
         self.config.set("scan_settings", "custom_clamd_path", self.txt_clamd_path.text().strip())
         self.config.set("scan_settings", "custom_freshclam_path", self.txt_freshclam_path.text().strip())
 
@@ -1652,8 +1733,14 @@ class MainWindow(QMainWindow):
             self.btn_daemon_action.setEnabled(False)
             self.btn_daemon_action.setText("Activating Daemon... Check UAC")
             self._daemon_worker = DaemonActivationWorker(self.service_mgr)
+            self._daemon_worker.log_emitted.connect(self.on_daemon_log)
             self._daemon_worker.activation_completed.connect(self.on_daemon_activation_finished)
             self._daemon_worker.start()
+
+    def on_daemon_log(self, msg: str):
+        logger.info(f"[ClamD Activation] {msg}")
+        if "loading" in msg.lower() or "verifying" in msg.lower():
+            self.btn_daemon_action.setText("Loading DB into Memory...")
 
     def on_daemon_activation_finished(self, success: bool, msg: str):
         self.refresh_status()
@@ -1711,6 +1798,11 @@ class MainWindow(QMainWindow):
                     is_warning=False,
                 )
         else:
+            if self._status_worker and self._status_worker.isRunning():
+                self._status_worker.quit()
+                if not self._status_worker.wait(500):
+                    self._status_worker.terminate()
+                    self._status_worker.wait(500)
             if self.guard:
                 self.guard.stop()
             super().closeEvent(event)

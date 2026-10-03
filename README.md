@@ -1,11 +1,11 @@
 # pyEGClamUI
 
-[![Version: 3.0.0](https://img.shields.io/badge/Version-3.0.0-00C853.svg)](docs/VERSIONING.md)
+[![Version: 3.1.0](https://img.shields.io/badge/Version-3.1.0-00C853.svg)](docs/VERSIONING.md)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python: >=3.9](https://img.shields.io/badge/Python->=3.9-3776AB.svg?logo=python&logoColor=white)](https://python.org)
 [![Platform: Windows | Linux | macOS](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/EG1DOTIN/pyEGClamUI)
 
-**Current Stable Release**: `v3.0.0` — An open-source, cross-platform desktop GUI for ClamAV engine. Built with Python and PySide6 (Qt).
+**Current Stable Release**: `v3.1.0` — An open-source, cross-platform desktop GUI for ClamAV engine. Built with Python and PySide6 (Qt).
 
 ---
 
@@ -58,10 +58,18 @@ Detailed architectural, technical, and operational documentation is available in
 
 pyEGClamUI includes an automated, cross-platform bootstrap setup suite ([`setup/README.md`](setup/README.md)) that provisions Python, creates an isolated virtual environment (`.venv`), checks ClamAV, and configures desktop shortcuts automatically.
 
-### 🪟 Windows (PowerShell 1-Liner)
+### 🪟 Windows Setup Options
+
+#### Option A: Standalone Setup Wizard (Recommended for End Users)
+Download the latest `pyEGClamUI-v3.1.0-Windows-Setup.exe` installer from [GitHub Releases](https://github.com/EG1DOTIN/pyEGClamUI/releases):
+* 🛡️ **Zero False Positives**: Uses official signed Python 3.12 embedded runtime.
+* ⚡ **Ultra-Fast Scans**: Automatically configures and launches ClamD resident daemon service (15 ms latency).
+* 🖥️ **Full Desktop Integration**: Configures Desktop/Start Menu shortcuts and clean Windows uninstaller.
+
+#### Option B: PowerShell 1-Liner (For Developers & Power Users)
 Run in PowerShell (Administrative or standard):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/EG1DOTIN/pyEGClamUI/main/setup/install.ps1' -OutFile setup.ps1; .\setup.ps1"
+powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/EG1DOTIN/pyEGClamUI/main/setup/windows/install.ps1' -OutFile setup.ps1; .\setup.ps1"
 ```
 
 ### 🐧 Linux & 🍎 macOS (Bash 1-Liner)

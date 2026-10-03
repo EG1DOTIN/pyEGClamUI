@@ -19,6 +19,15 @@ def test_daemon_parse_response_line_ok():
     assert parsed["error"] == ""
 
 
+def test_daemon_parse_response_line_windows_path():
+    line = r"C:\Users\User\Downloads\setup.exe: OK"
+    parsed = ClamDaemonClient.parse_response_line(line)
+    assert parsed["status"] == "OK"
+    assert parsed["path"] == r"C:\Users\User\Downloads\setup.exe"
+    assert parsed["threat"] == ""
+    assert parsed["error"] == ""
+
+
 def test_daemon_parse_response_line_found():
     line = "/tmp/download/payload.bin: Win.Trojan.Generic-99 FOUND"
     parsed = ClamDaemonClient.parse_response_line(line)

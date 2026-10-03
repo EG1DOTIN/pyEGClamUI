@@ -195,23 +195,24 @@ class IssueDialog(QDialog):
 
     def _trigger_screen_clip(self):
         """Launches the operating system native screen clipper."""
+        from pyegclamui.core.process import spawn_hidden_process
         launched = False
         if sys.platform == "win32":
             try:
-                subprocess.Popen(["explorer", "ms-screenclip:"])
+                spawn_hidden_process(["explorer", "ms-screenclip:"])
                 launched = True
             except Exception:
                 pass
         elif sys.platform == "darwin":
             try:
-                subprocess.Popen(["screencapture", "-i", "-c"])
+                spawn_hidden_process(["screencapture", "-i", "-c"])
                 launched = True
             except Exception:
                 pass
         elif sys.platform == "linux":
             for tool in ["gnome-screenshot", "spectacle", "scrot"]:
                 try:
-                    subprocess.Popen([tool, "-a" if tool != "scrot" else "-s"])
+                    spawn_hidden_process([tool, "-a" if tool != "scrot" else "-s"])
                     launched = True
                     break
                 except Exception:

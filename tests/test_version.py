@@ -20,20 +20,18 @@ def test_version_format():
     )
 
 
-def test_version_matches_pyproject_toml():
-    """Ensures src/pyegclamui/__init__.py and pyproject.toml are strictly synchronized."""
+def test_version_dynamic_in_pyproject_toml():
+    """Ensures pyproject.toml is configured for dynamic versioning mapped to pyegclamui.__version__."""
     project_root = Path(__file__).resolve().parent.parent
     pyproject_path = project_root / "pyproject.toml"
     assert pyproject_path.exists(), "pyproject.toml not found at project root"
 
     content = pyproject_path.read_text(encoding="utf-8")
-    match = re.search(r'version\s*=\s*"([^"]+)"', content)
-    assert match is not None, "version entry missing in pyproject.toml"
-
-    pyproject_version = match.group(1)
-    assert pyegclamui.__version__ == pyproject_version, (
-        f"Version mismatch! __init__.py has '{pyegclamui.__version__}', "
-        f"but pyproject.toml has '{pyproject_version}'."
+    assert 'dynamic = ["version"]' in content or "dynamic = ['version']" in content, (
+        "pyproject.toml must declare dynamic = ['version'] for centric SSOT versioning."
+    )
+    assert 'version = {attr = "pyegclamui.__version__"}' in content or "version = {attr = 'pyegclamui.__version__'}" in content, (
+        "pyproject.toml must map dynamic version to pyegclamui.__version__."
     )
 
 
