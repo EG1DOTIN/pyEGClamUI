@@ -345,5 +345,8 @@ class ClamSetupDialog(QDialog):
 
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():
-            self.worker.wait(1000)
+            self.worker.quit()
+            if not self.worker.wait(500):
+                self.worker.terminate()
+                self.worker.wait(500)
         super().closeEvent(event)

@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 from typing import Optional, Tuple
 
-from PySide6.QtCore import QProcess, QSize, QThread, Qt, Signal
+from PySide6.QtCore import QObject, QProcess, QSize, QThread, Qt, Signal
 from PySide6.QtGui import QFont, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -43,8 +43,8 @@ class GlobalUpdateWorker(QThread):
     progress_changed = Signal(int, str)
     update_completed = Signal(bool, str, bool)
 
-    def __init__(self, pipeline: GlobalUpdatePipeline):
-        super().__init__()
+    def __init__(self, pipeline: GlobalUpdatePipeline, parent: Optional[QObject] = None):
+        super().__init__(parent)
         self.pipeline = pipeline
 
     def run(self):
@@ -120,6 +120,7 @@ class ClamGlobalUpdateDialog(QDialog):
         parent: Optional[QWidget] = None,
         updater: Optional[ClamUpdater] = None,
         pipeline: Optional[GlobalUpdatePipeline] = None,
+        auto_start: bool = True,
     ):
         super().__init__(parent)
         self.updater = updater or ClamUpdater()
@@ -140,7 +141,8 @@ class ClamGlobalUpdateDialog(QDialog):
                 break
 
         self.setup_ui()
-        self.start_pipeline()
+        if auto_start:
+            self.start_pipeline()
         apply_dark_titlebar(self)
 
     def showEvent(self, event):
@@ -311,7 +313,7 @@ class ClamGlobalUpdateDialog(QDialog):
 
     def start_pipeline(self):
         """Spawns background update worker thread."""
-        self.worker = GlobalUpdateWorker(self.pipeline)
+        self.worker = GlobalUpdateWorker(self.pipeline, parent=self)
         self.worker.line_emitted.connect(self.on_line_emitted)
         self.worker.stage_changed.connect(self.on_stage_changed)
         self.worker.progress_changed.connect(self.on_progress_changed)
@@ -402,6 +404,15 @@ class ClamGlobalUpdateDialog(QDialog):
         """Restarts pyEGClamUI application."""
         QProcess.startDetached(sys.executable, sys.argv)
         QGuiApplication.quit()
+
+    def closeEvent(self, event):
+        if self.worker and self.worker.isRunning():
+            self.pipeline.cancel()
+            self.worker.quit()
+            if not self.worker.wait(500):
+                self.worker.terminate()
+                self.worker.wait(500)
+        super().closeEvent(event)
 
 
 # Compatibility aliases for legacy callers

@@ -165,7 +165,7 @@ def test_update_dialog_and_worker(main_win, qapp):
     # 2. Test ClamUpdateDialog initialization and UI handlers
     mock_updater = MagicMock()
     mock_updater.run_update.return_value = (True, "Database updated successfully.")
-    dlg = ClamUpdateDialog(win, updater=mock_updater)
+    dlg = ClamUpdateDialog(win, updater=mock_updater, auto_start=False)
 
     assert "Virus Signature Update" in dlg.windowTitle()
     assert dlg.btn_close is not None

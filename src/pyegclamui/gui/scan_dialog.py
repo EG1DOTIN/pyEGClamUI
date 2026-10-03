@@ -245,6 +245,9 @@ class ScanDialog(QDialog):
         if self.scanner.is_running:
             self.scanner.stop()
         if hasattr(self, "worker") and self.worker and self.worker.isRunning():
-            self.worker.wait(1000)
+            self.worker.quit()
+            if not self.worker.wait(500):
+                self.worker.terminate()
+                self.worker.wait(500)
         super().closeEvent(event)
 
