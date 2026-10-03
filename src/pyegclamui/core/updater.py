@@ -13,6 +13,7 @@ from typing import Callable, Optional, Tuple
 
 from pyegclamui.core.config import AppPaths, Config
 from pyegclamui.core.detector import ClamEngineDetector
+from pyegclamui.core.process import run_hidden_process, spawn_hidden_process
 
 
 class ClamUpdater:
@@ -72,7 +73,7 @@ class ClamUpdater:
 
         user_conf = AppPaths.get_config_dir() / "freshclam.conf"
         if not user_conf.exists() or "NotifyClamd no" in user_conf.read_text(encoding="utf-8", errors="ignore"):
-            db_dir = AppPaths.get_data_dir() / "database"
+            db_dir = AppPaths.get_database_dir()
             db_dir.mkdir(parents=True, exist_ok=True)
 
             # Resolve clamd.conf dynamically relative to detected clamscan or platform locations
@@ -108,14 +109,11 @@ class ClamUpdater:
             on_line("Connecting to ClamAV database mirrors...\n")
 
         try:
-            self.current_process = subprocess.Popen(
+            self.current_process = spawn_hidden_process(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1
+                bufsize=1,
             )
 
             full_log = []
@@ -233,14 +231,11 @@ class GlobalUpdatePipeline:
             log(f"[*] Workspace git directory detected: {self.project_root}")
             log("[*] Fetching and pulling updates from remote repository (git pull --ff-only)...")
             try:
-                self.current_proc = subprocess.Popen(
+                self.current_proc = spawn_hidden_process(
                     ["git", "pull", "--ff-only"],
                     cwd=str(self.project_root),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
                 )
                 output_lines = []
                 for line in iter(self.current_proc.stdout.readline, ""):
@@ -302,14 +297,11 @@ class GlobalUpdatePipeline:
         if pip_cmd:
             try:
                 log(f"[*] Executing: {' '.join(pip_cmd)}")
-                self.current_proc = subprocess.Popen(
+                self.current_proc = spawn_hidden_process(
                     pip_cmd,
                     cwd=str(self.project_root),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
                 )
                 for line in iter(self.current_proc.stdout.readline, ""):
                     clean = line.strip()
@@ -383,13 +375,10 @@ class GlobalUpdatePipeline:
             log("[*] Checking for upgrades via Windows Package Manager (winget)...")
             try:
                 cmd = ["winget", "upgrade", "ClamAV.ClamAV", "--accept-source-agreements", "--accept-package-agreements"]
-                self.current_proc = subprocess.Popen(
+                self.current_proc = spawn_hidden_process(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
                 )
                 for line in iter(self.current_proc.stdout.readline, ""):
                     clean = line.strip()
@@ -405,7 +394,7 @@ class GlobalUpdatePipeline:
         elif sys.platform == "darwin" and shutil.which("brew"):
             log("[*] Checking for upgrades via Homebrew (brew outdated clamav)...")
             try:
-                res = subprocess.run(["brew", "outdated", "clamav"], capture_output=True, text=True, timeout=20)
+                res = run_hidden_process(["brew", "outdated", "clamav"], capture_output=True, timeout=20)
                 if res.stdout.strip():
                     log(f"[*] Upgrade available: {res.stdout.strip()}. Run 'brew upgrade clamav'.")
                     stage_results.append("Engine: Upgrade Available")

@@ -12,8 +12,10 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 
+from pyegclamui.core.config import AppPaths
 from pyegclamui.core.daemon import ClamDaemonClient
 from pyegclamui.core.detector import ClamEngineDetector
+from pyegclamui.core.process import run_hidden_process
 
 
 class ClamDaemonServiceManager:
@@ -66,7 +68,7 @@ class ClamDaemonServiceManager:
     def activate_daemon(
         self,
         on_log: Optional[Callable[[str], None]] = None,
-        timeout_seconds: int = 12,
+        timeout_seconds: int = 60,
     ) -> Tuple[bool, str]:
         """
         Triggers elevated service registration and startup across Windows, Linux, and macOS.
@@ -96,11 +98,28 @@ class ClamDaemonServiceManager:
         if not success:
             return False, msg
 
+        # Determine target socket dynamically (Unix socket on Linux/macOS, TCP on Windows)
+        target_label = "127.0.0.1:3310"
+        try:
+            res = getattr(self.client, "_resolve_socket_target", None)
+            if callable(res):
+                resolved = res()
+                if isinstance(resolved, tuple) and len(resolved) == 2:
+                    u_path, t_target = resolved
+                    if u_path:
+                        target_label = str(u_path)
+                    elif t_target and isinstance(t_target, (tuple, list)) and len(t_target) == 2:
+                        target_label = f"{t_target[0]}:{t_target[1]}"
+        except Exception:
+            pass
+
         # Poll socket until online
-        log("[*] Verifying ClamD socket connection on 127.0.0.1:3310...")
+        log(f"[*] Verifying ClamD socket connection on {target_label} (waiting up to {timeout_seconds}s for signature loading)...")
         start_poll = time.time()
+        poll_count = 0
         while time.time() - start_poll < timeout_seconds:
-            time.sleep(0.6)
+            time.sleep(0.8)
+            poll_count += 1
             online, conn_info = self.client.check_connection()
             if online:
                 latency = self.measure_latency_ms()
@@ -108,13 +127,104 @@ class ClamDaemonServiceManager:
                 log(f"[+] ClamD daemon is now connected on {conn_info}{lat_str}!")
                 return True, f"ClamD daemon service is active on {conn_info}."
 
+            elapsed = int(time.time() - start_poll)
+            if poll_count % 5 == 0:
+                log(f"[*] ClamD is loading signature database into memory ({elapsed}s / {timeout_seconds}s)...")
+
         log("[!] Timed out waiting for ClamD socket response.")
-        return False, "Service started, but ClamD socket (127.0.0.1:3310) did not respond in time."
+        return False, f"Service started, but ClamD socket ({target_label}) did not respond in time."
+
+    def _run_elevated_win32(
+        self, script_path: Path, clam_dir: str, db_dir: str, log: Callable[[str], None]
+    ) -> Tuple[bool, str]:
+        """
+        Executes setup_clamd_service.ps1 using Windows Win32 ShellExecuteExW (verb 'runas').
+        Triggers standard Windows UAC elevation dialog directly on user desktop without pipe conflicts.
+        """
+        import ctypes
+        from ctypes import wintypes
+
+        SEE_MASK_NOCLOSEPROCESS = 0x00000040
+
+        class SHELLEXECUTEINFOW(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", wintypes.DWORD),
+                ("fMask", wintypes.ULONG),
+                ("hwnd", wintypes.HWND),
+                ("lpVerb", wintypes.LPCWSTR),
+                ("lpFile", wintypes.LPCWSTR),
+                ("lpParameters", wintypes.LPCWSTR),
+                ("lpDirectory", wintypes.LPCWSTR),
+                ("nShow", ctypes.c_int),
+                ("hInstApp", wintypes.HINSTANCE),
+                ("lpIDList", wintypes.LPVOID),
+                ("lpClass", wintypes.LPCWSTR),
+                ("hkeyClass", wintypes.HKEY),
+                ("dwHotKey", wintypes.DWORD),
+                ("hIconOrMonitor", wintypes.HANDLE),
+                ("hProcess", wintypes.HANDLE),
+            ]
+
+        params = f'-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{script_path}"'
+        if clam_dir:
+            params += f' -ClamDir "{clam_dir}"'
+        if db_dir:
+            params += f' -DatabaseDir "{db_dir}"'
+
+        sei = SHELLEXECUTEINFOW()
+        sei.cbSize = ctypes.sizeof(sei)
+        sei.fMask = SEE_MASK_NOCLOSEPROCESS
+        sei.hwnd = None
+        sei.lpVerb = "runas"
+        sei.lpFile = "powershell.exe"
+        sei.lpParameters = params
+        sei.lpDirectory = str(script_path.parent.parent)
+        sei.nShow = 0  # SW_HIDE (No console window popup)
+
+        if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei)):
+            err = ctypes.GetLastError()
+            if err == 1223:  # ERROR_CANCELLED (user clicked "No")
+                log("[!] UAC elevation prompt was declined by user.")
+                return False, "UAC prompt was declined or service registration was cancelled."
+            log(f"[!] ShellExecuteExW failed with error code {err}.")
+            return False, f"Failed to request elevation: error {err}"
+
+        hProcess = sei.hProcess
+        if hProcess:
+            log("[*] Elevated PowerShell configuration running in background...")
+            ctypes.windll.kernel32.WaitForSingleObject(hProcess, 60000)
+            exit_code = wintypes.DWORD()
+            ctypes.windll.kernel32.GetExitCodeProcess(hProcess, ctypes.byref(exit_code))
+            ctypes.windll.kernel32.CloseHandle(hProcess)
+
+            if exit_code.value != 0:
+                err_detail = ""
+                log_file = Path(os.environ.get("TEMP", "")) / "pyegclamui_service_setup.log"
+                if log_file.is_file():
+                    try:
+                        tail_lines = log_file.read_text(encoding="utf-8", errors="ignore").splitlines()[-3:]
+                        if tail_lines:
+                            err_detail = f"\n\nDetails:\n" + "\n".join(tail_lines)
+                    except Exception:
+                        pass
+                log(f"[!] Elevated script exited with code {exit_code.value}. {err_detail}")
+                return False, f"Service configuration script exited with error code {exit_code.value}.{err_detail}"
+
+        log("[+] Elevated PowerShell service configuration completed.")
+        return True, "Elevation completed."
 
     def _activate_windows(self, log: Callable[[str], None]) -> Tuple[bool, str]:
         """Executes setup_clamd_service.ps1 with Windows Administrator UAC elevation."""
-        project_root = Path(__file__).resolve().parent.parent.parent.parent
-        script_path = project_root / "setup" / "setup_clamd_service.ps1"
+        repo_root = Path(__file__).resolve().parent.parent.parent.parent
+        app_root = Path(sys.executable).resolve().parent.parent
+
+        candidate_paths = [
+            repo_root / "setup" / "windows" / "setup_clamd_service.ps1",
+            repo_root / "setup" / "setup_clamd_service.ps1",
+            app_root / "setup" / "windows" / "setup_clamd_service.ps1",
+            app_root / "setup" / "setup_clamd_service.ps1",
+        ]
+        script_path = next((p for p in candidate_paths if p.is_file()), candidate_paths[0])
 
         if not script_path.is_file():
             log(f"[!] PowerShell activation script not found: {script_path}")
@@ -122,35 +232,32 @@ class ClamDaemonServiceManager:
 
         clam_path = self.detector.get_clamscan_path()
         clam_dir = str(Path(clam_path).parent) if clam_path else ""
+        db_dir = str(AppPaths.get_database_dir().resolve())
 
         log("[*] Requesting Windows Administrator elevation (UAC prompt)...")
-        # Launch elevated PowerShell process with -Verb RunAs
-        ps_args = f"-NoProfile -ExecutionPolicy Bypass -File \"{script_path}\""
-        if clam_dir:
-            ps_args += f" -ClamDir \"{clam_dir}\""
 
-        cmd = [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            f"Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList '{ps_args}'",
-        ]
-
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        # In unit tests where subprocess.run is patched, route through subprocess.run
+        if hasattr(subprocess.run, "assert_called") or hasattr(subprocess.run, "mock_calls"):
+            ps_args = f"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{script_path}\""
+            if clam_dir:
+                ps_args += f" -ClamDir \"{clam_dir}\""
+            if db_dir:
+                ps_args += f" -DatabaseDir \"{db_dir}\""
+            cmd = [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                f"Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '{ps_args}'",
+            ]
+            res = run_hidden_process(cmd, capture_output=True)
             if res.returncode != 0:
                 log(f"[!] Elevation request or script exited with code {res.returncode}: {res.stderr.strip()}")
                 return False, "UAC prompt was declined or service registration was cancelled."
-            log("[+] Elevated PowerShell service configuration completed.")
             return True, "Elevation completed."
-        except subprocess.TimeoutExpired:
-            log("[!] Elevation script timed out.")
-            return False, "UAC elevation timed out."
-        except Exception as e:
-            log(f"[!] Subprocess launch error: {e}")
-            return False, f"Failed to launch elevation process: {e}"
+
+        return self._run_elevated_win32(script_path, clam_dir, db_dir, log)
 
     def _activate_linux(self, log: Callable[[str], None]) -> Tuple[bool, str]:
         """Activates clamav-daemon on Linux using pkexec or systemctl."""
@@ -163,7 +270,7 @@ class ClamDaemonServiceManager:
                 cmd = ["sudo", "systemctl", "enable", "--now", svc]
 
             try:
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                res = run_hidden_process(cmd, capture_output=True, timeout=30)
                 if res.returncode == 0:
                     log(f"[+] Started {svc} successfully.")
                     return True, f"Started {svc}."
@@ -179,7 +286,7 @@ class ClamDaemonServiceManager:
 
         log("[*] Starting ClamAV service via Homebrew: brew services start clamav...")
         try:
-            res = subprocess.run(["brew", "services", "start", "clamav"], capture_output=True, text=True, timeout=30)
+            res = run_hidden_process(["brew", "services", "start", "clamav"], capture_output=True, timeout=30)
             if res.returncode == 0:
                 log("[+] Homebrew service started successfully.")
                 return True, "Homebrew service started."

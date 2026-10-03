@@ -176,9 +176,20 @@ The updater orchestrates the official ClamAV `freshclam` utility.
 | 🟡 `40` | **Network Error** | Cannot connect to database.clamav.net mirrors | "Mirror connection failed; check network" |
 | 🔴 `Other` | **Engine Failure** | Configuration syntax error or lock collision | Error message with return code logged |
 
-### 5.2 User-Level Database Isolation
+### 5.2 Universal Database Resolution & Service Compatibility
 
-To prevent Windows Admin UAC permission errors, pyEGClamUI automatically generates a customized `freshclam.conf` storing databases inside the user's local application data directory (`%LOCALAPPDATA%\pyEGClamUI\database`), eliminating the need for elevated Administrator privileges during daily signature updates.
+To prevent Windows Admin UAC permission errors, pyEGClamUI stores user-level databases inside `%LOCALAPPDATA%\pyEGClamUI\database`. However, because Windows Services running under `NT AUTHORITY\SYSTEM` (such as ClamD) cannot access private user AppData directories, pyEGClamUI employs universal database resolution ([`AppPaths.get_database_dir()`](../src/pyegclamui/core/config.py)):
+1. Checks for virus definitions (`*.c*d`) in `C:\ProgramData\ClamAV\database` with permissive user and service ACLs.
+2. If absent, falls back safely to user AppData (`%LOCALAPPDATA%\pyEGClamUI\database`).
+3. During ClamD service configuration, active virus definitions are automatically mirrored to `C:\ProgramData\ClamAV\database` so the daemon starts and binds to TCP 3310 immediately.
+
+---
+
+## 9. ClamD Service Management (`service_manager.py`)
+
+* **Source File**: [`../src/pyegclamui/core/service_manager.py`](../src/pyegclamui/core/service_manager.py) (`ServiceManager`)
+
+The service manager orchestrates Windows ClamD service registration and background daemon management with hidden, non-intrusive execution (`SW_HIDE` / `-WindowStyle Hidden`). It provisions `clamd.conf`, starts the Windows service via `sc.exe start clamd`, and verifies socket availability with a 15-second polling loop.
 
 ---
 

@@ -72,23 +72,24 @@ class ClamDaemonClient:
         )
         return None, (host, port)
 
-    def _create_socket(self) -> socket.socket:
+    def _create_socket(self, timeout: Optional[float] = None) -> socket.socket:
         """Establishes and returns an open socket connection to clamd."""
+        eff_timeout = timeout if timeout is not None else self.timeout
         unix_path, tcp_target = self._resolve_socket_target()
 
         if unix_path and hasattr(socket, "AF_UNIX"):
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(self.timeout)
+            s.settimeout(eff_timeout)
             s.connect(unix_path)
             return s
         elif tcp_target:
             host, port = tcp_target
-            s = socket.create_connection((host, port), timeout=self.timeout)
+            s = socket.create_connection((host, port), timeout=eff_timeout)
             return s
         else:
             raise ConnectionRefusedError("No viable clamd Unix socket or TCP target found.")
 
-    def check_connection(self) -> Tuple[bool, str]:
+    def check_connection(self, timeout: float = 0.5) -> Tuple[bool, str]:
         """
         Verifies whether clamd is reachable and responding to PING.
         Returns: (is_online, connection_description)
@@ -103,7 +104,7 @@ class ClamDaemonClient:
         )
 
         try:
-            with self._create_socket() as s:
+            with self._create_socket(timeout=timeout) as s:
                 s.sendall(b"PING\n")
                 resp = s.recv(32).strip()
                 if b"PONG" in resp:
@@ -180,7 +181,7 @@ class ClamDaemonClient:
         if not line:
             return {"status": "EMPTY", "path": "", "threat": "", "error": ""}
 
-        parts = line.split(":", 1)
+        parts = line.rsplit(":", 1)
         if len(parts) < 2:
             return {"status": "RAW", "path": "", "raw": line}
 

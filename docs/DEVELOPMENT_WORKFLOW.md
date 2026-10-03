@@ -120,68 +120,59 @@ To guarantee identical behavior across developer workstations and cloud CI envir
 
 ---
 
-## 4. Release Rules & Version Management
+## 4. Release Rules & Centric Version Management
 
 pyEGClamUI follows **Semantic Versioning 2.0.0** (`MAJOR.MINOR.PATCH`).
 
-### Version Single Source of Truth (SSOT)
+### Centric Single Source of Truth (SSOT)
 
-Version numbers are declared in exactly two statutory files:
-1. **Runtime SSOT**: [`src/pyegclamui/__init__.py`](../src/pyegclamui/__init__.py) (`__version__ = "X.Y.Z"`)
-2. **Packaging SSOT**: [`pyproject.toml`](../pyproject.toml) (`version = "X.Y.Z"`)
+Version numbers are declared in **one single location**:
+* **Centric SSOT**: [`src/pyegclamui/__init__.py`](../src/pyegclamui/__init__.py) (`__version__ = "X.Y.Z"`)
 
-Both files must match identically before any release tag is cut. This is strictly verified by [`tests/test_version.py`](../tests/test_version.py).
+All other components dynamically derive their version:
+* [`pyproject.toml`](../pyproject.toml): Configured with PEP 621 `dynamic = ["version"]` and `[tool.setuptools.dynamic]`.
+* [`scripts/package_windows_installer.py`](../scripts/package_windows_installer.py): Dynamically passes version to Inno Setup (`/DAppVersion=X.Y.Z`).
+* [`scripts/build.py`](../scripts/build.py): Dynamically formats `.tar.gz` and `.zip` distribution filenames.
+* GUI, CLI, and Telemetry: Dynamically read `pyegclamui.__version__`.
+
+The automated test [`tests/test_version.py`](../tests/test_version.py) validates SemVer compliance and dynamic resolution.
 
 ---
 
-## 5. Deployment & Scratch Staging Architecture
+## 5. Deployment & Installer Packaging Architecture
 
-A critical principle of pyEGClamUI release engineering is **document immutability**:
-* Repository documentation (`README.md`, `LICENSE`, `docs/*.md`) and source code must remain **100% fixed, clean, and untouched** during packaging.
-* Build tools, PyInstaller, and packaging scripts must **never** mutate repository files in place.
+pyEGClamUI maintains distinct, tailored packaging pipelines for desktop operating systems while preserving a clean directory organization under `setup/`:
+* `setup/windows/`: Inno Setup compiler script (`pyegclamui_installer.iss`), PowerShell service configuration (`setup_clamd_service.ps1`), and installation script (`install.ps1`).
+* `setup/linux/`: Shell installation script (`install.sh`) and desktop entry.
+* `setup/macos/`: Shell installation script (`install.sh`).
 
 ```mermaid
 flowchart TD
-    subgraph SourceRepo ["Repository Root (Fixed & Immutable)"]
-        Src["src/pyegclamui/..."]
-        Readme["README.md"]
-        Lic["LICENSE"]
-        Desktop["pyegclamui.desktop"]
-        Setup["setup/install.sh"]
+    subgraph WindowsPipeline ["Windows Packaging Pipeline (Inno Setup)"]
+        WinEmbed["Official Signed Python 3.12 Embed"] --> WinStage["build/windows_installer_staging/"]
+        ClamWin["Bundled ClamAV Binaries + ClamD"] --> WinStage
+        AppSrc["pyEGClamUI Source & Assets"] --> WinStage
+        WinStage --> ISCC["Inno Setup Compiler (ISCC.exe)"]
+        ISCC --> SetupExe["dist/pyEGClamUI-vX.Y.Z-Windows-Setup.exe"]
     end
 
-    subgraph ScratchArea ["Ephemeral Scratch Staging (dist/package_staging/)"]
-        StageExe["Compiled Binary (pyEGClamUI.exe / ELF / .app)"]
-        StageDoc["Read-Only Copy: README.md"]
-        StageLic["Read-Only Copy: LICENSE"]
-        StageDesk["Read-Only Copy: pyegclamui.desktop"]
+    subgraph UnixPipeline ["Linux & macOS Packaging Pipeline (PyInstaller)"]
+        UnixSrc["src/pyegclamui/..."] --> PyInst["PyInstaller"]
+        PyInst --> ScratchArea["dist/package_staging/"]
+        ScratchArea --> TarGz["dist/pyegclamui-vX.Y.Z-linux-x86_64.tar.gz"]
+        ScratchArea --> MacZip["dist/pyegclamui-vX.Y.Z-macos-*.zip"]
     end
 
-    subgraph FinalOutput ["Distribution Output (dist/)"]
-        Zip["pyegclamui-vX.Y.Z-windows-x64.zip"]
-        Tar["pyegclamui-vX.Y.Z-linux-x86_64.tar.gz"]
-        MacZip["pyegclamui-vX.Y.Z-macos-*.zip"]
-    end
-
-    Src -->|"PyInstaller Compile"| StageExe
-    Readme & Lic & Desktop & Setup -->|"Read-Only Snapshot Copy"| ScratchArea
-    ScratchArea -->|"Compress & Package"| FinalOutput
-    ScratchArea -.->|"shutil.rmtree (Immediate Purge)"| Clean["Scratch Folder Removed"]
+    SetupExe --> GHRelease["GitHub Releases (Automated CI/CD)"]
+    TarGz --> GHRelease
+    MacZip --> GHRelease
 ```
 
-### How the Scratch Staging Pattern Works
-
-In [`scripts/build.py`](../scripts/build.py):
-1. **Compilation Phase**: PyInstaller builds the executable directly into `dist/`.
-2. **Scratch Staging Creation**: A dedicated sandbox directory (`dist/package_staging/`) is initialized.
-3. **Snapshot Ingestion**: Essential legal and launcher files are copied into the sandbox as read-only copies.
-4. **Archive Packaging**: Zip or tar.gz archives are generated from the staging directory contents.
-5. **Immediate Cleanup**: `shutil.rmtree(staging_dir)` permanently wipes the scratch folder, leaving the repository tree completely clean.
-
-**Benefits**:
-* 🟢 **Zero Git Dirtying**: No leftover temporary files or modified working tree states after building.
-* 🟢 **Document Safety**: Production documents are never overwritten, renamed, or corrupted during deployment.
-* 🟢 **Isolated Build Artifacts**: All build outputs reside strictly inside `dist/` and `build/`, which are ignored by `.gitignore`.
+### Windows Embedded Runtime Advantage
+The Windows installer embeds the official Python Software Foundation signed `pythonw.exe` runtime:
+* 🟢 **Zero Defender False Positives**: No unsigned unpacker bootloader heuristics (`Trojan:Win32/Wacatac.B!ml`).
+* 🟢 **Instant Startup**: Zero `%TEMP%` extraction decompression latency.
+* 🟢 **Self-Contained ClamAV & ClamD**: Optionally provisions and activates ClamD daemon service automatically during installation.
 
 ---
 
@@ -189,16 +180,15 @@ In [`scripts/build.py`](../scripts/build.py):
 
 Follow this checklist sequentially whenever releasing a new public version:
 
-| Step | Action | Command / Location |
-| :---: | :--- | :--- |
-| **1** | Confirm working tree is clean | `git status` (no uncommitted changes) |
-| **2** | Run entire test suite locally | `.venv\Scripts\pytest tests/` (115+ passing) |
-| **3** | Verify SSOT version alignment | Confirm `src/pyegclamui/__init__.py` == `pyproject.toml` |
-| **4** | Push all commits to `main` | `git push origin main` |
-| **5** | Create annotated release tag | `git tag -fa vX.Y.Z -m "Release vX.Y.Z"` |
-| **6** | Push release tag to GitHub | `git push origin vX.Y.Z --force` |
-| **7** | Monitor automated release build | Check [GitHub Actions](https://github.com/EG1DOTIN/pyEGClamUI/actions) |
-| **8** | Verify public release downloads | Check [GitHub Releases](https://github.com/EG1DOTIN/pyEGClamUI/releases) |
+| Step | Action | Command / Location | Expected Runtime |
+| :---: | :--- | :--- | :--- |
+| **1** | Update Centric SSOT version | [`src/pyegclamui/__init__.py`](../src/pyegclamui/__init__.py) | Instant (1 line edit) |
+| **2** | Run entire test suite locally | `.venv\Scripts\python.exe -m pytest tests/` | < 15 seconds (119 passing) |
+| **3** | Commit version bump to `main` | `git commit -am "chore(release): bump version to X.Y.Z"` | Instant |
+| **4** | Push commit to GitHub | `git push origin main` | Instant |
+| **5** | Create & push annotated release tag | `git tag -a vX.Y.Z -m "Release vX.Y.Z"` && `git push origin vX.Y.Z` | Instant |
+| **6** | Monitor automated CI/CD pipeline | [GitHub Actions Workflow](https://github.com/EG1DOTIN/pyEGClamUI/actions) | < 15 minutes total |
+| **7** | Verify release attachments | [GitHub Releases](https://github.com/EG1DOTIN/pyEGClamUI/releases) | Setup.exe, tar.gz, zip attached |
 
 ---
 

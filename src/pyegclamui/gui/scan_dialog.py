@@ -48,7 +48,8 @@ class ScanWorker(QThread):
             targets=self.targets,
             on_progress=lambda f: self.file_scanned.emit(f),
             on_threat=lambda t: self.threat_found.emit(t),
-            on_status=lambda s: self.status_changed.emit(s)
+            on_status=lambda s: self.status_changed.emit(s),
+            prefer_daemon=True,
         )
         self.scan_completed.emit(report)
 
@@ -232,6 +233,8 @@ class ScanDialog(QDialog):
         else:
             self.title_label.setText("Scan Finished - No Threats Detected")
             self.title_label.setStyleSheet("color: #22c55e;")
+
+        self.files_count_label.setText(f"Scanned Files: {report.scanned_files}")
 
     def on_stop_clicked(self):
         self.stop_btn.setEnabled(False)

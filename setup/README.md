@@ -41,9 +41,12 @@ flowchart TD
 | File | Language | Purpose & Functionality |
 | :--- | :--- | :--- |
 | **[`setup.py`](setup.py)** | Python 3 (Standard Library) | Master cross-platform engine handling `--install`, `--update`, `--check`, `--shortcuts-only`, and `--uninstall`. |
-| **[`install.ps1`](install.ps1)** | PowerShell 5.1+ / 7+ | Windows bootstrap launcher; auto-provisions Python 3.12 via `winget` if missing and invokes `setup.py`. |
-| **[`setup_clamd_service.ps1`](setup_clamd_service.ps1)** | PowerShell (Self-Elevating) | Configures `clamd.conf`, `freshclam.conf`, registers and starts `"ClamAV ClamD"` Windows service on TCP 3310. |
-| **[`install.sh`](install.sh)** | POSIX Bash | Linux & macOS bootstrap launcher; auto-detects `python3`, clones repository if remote, and executes `setup.py`. |
+| **[`windows/pyegclamui_installer.iss`](windows/pyegclamui_installer.iss)** | Inno Setup Script | Windows Inno Setup script creating the standalone signed-Python installer (`pyEGClamUI-Setup.exe`). |
+| **[`windows/install_clamav.ps1`](windows/install_clamav.ps1)** | PowerShell (Automated) | Checks for ClamAV engine; provisions via `winget` unattended silently if not detected. |
+| **[`windows/install.ps1`](windows/install.ps1)** | PowerShell 5.1+ / 7+ | Windows bootstrap launcher; auto-provisions Python 3.12 via `winget` if missing and invokes `setup.py`. |
+| **[`windows/setup_clamd_service.ps1`](windows/setup_clamd_service.ps1)** | PowerShell (Self-Elevating) | Configures `clamd.conf`, registers and starts `"ClamAV ClamD"` Windows service on TCP 3310. |
+| **[`linux/install.sh`](linux/install.sh)** | POSIX Bash | Linux bootstrap launcher; auto-detects `python3`, clones repository if remote, and executes `setup.py`. |
+| **[`macos/install.sh`](macos/install.sh)** | POSIX Bash | macOS bootstrap launcher; verifies Homebrew/MacPorts ClamAV and executes `setup.py`. |
 | **[`setup_engine.py`](../src/pyegclamui/core/setup_engine.py)** | Python / Qt Bridge | Connects internal pyEGClamUI engine logic with the universal installer routines. |
 | **[`setup_dialog.py`](../src/pyegclamui/gui/setup_dialog.py)** | PySide6 GUI | Interactive setup wizard with a real-time expandable terminal log drawer. |
 
@@ -249,5 +252,21 @@ The ClamAV daemon management architecture provides unified behavior and resilien
   * **macOS (Homebrew)**:
     * Start: `brew services start clamav`
     * Stop: `brew services stop clamav`
+
+---
+
+## 9. Automated CI/CD Pipeline & Packaging Matrix
+
+Every commit and tag to the repository triggers our automated multi-platform GitHub Actions workflow ([`.github/workflows/build.yml`](../.github/workflows/build.yml)):
+
+| Platform | Target Runner | Automated Package Generated | Installer Mechanism |
+| :--- | :--- | :--- | :--- |
+| **🪟 Windows** | `windows-latest` | `pyEGClamUI-v*-Windows-Setup.exe`<br>`pyegclamui-v*-windows-x64.zip` | 🛡️ **Inno Setup Compiler** (embedded Python 3.12 + signed runtime + ClamAV integration) |
+| **🐧 Linux** | `ubuntu-latest` | `pyegclamui-v*-linux-x86_64.tar.gz` | 📦 PyInstaller standalone binary + `.desktop` menu launcher + icons |
+| **🍎 macOS** | `macos-latest` | `pyegclamui-v*-macos-*.zip` | 📦 PyInstaller standalone bundle + Homebrew integration |
+
+> [!NOTE]
+> **Strict Test Time Budget (<15 Minutes)**: The complete 125-test automated unit and integration suite runs on every OS runner with `--durations=10`. Total test execution completes in **~10–12 seconds**, leaving 98%+ of runner time for clean, deterministic packaging.
+
 
 

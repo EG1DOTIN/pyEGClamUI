@@ -14,6 +14,7 @@ from typing import Callable, List, Optional, Tuple
 
 from pyegclamui.core.config import Config
 from pyegclamui.core.detector import ClamEngineDetector
+from pyegclamui.core.process import run_hidden_process, spawn_hidden_process
 
 
 class ClamEngineInstaller:
@@ -147,13 +148,10 @@ class ClamEngineInstaller:
         if on_log:
             on_log(f"[*] Executing: {' '.join(cmd)}")
         try:
-            proc = subprocess.Popen(
+            proc = spawn_hidden_process(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace"
             )
             for line in iter(proc.stdout.readline, ""):
                 line_str = line.strip()
@@ -209,9 +207,9 @@ class ClamEngineInstaller:
             if on_progress:
                 on_progress(75)
 
-            # Run msiexec quietly
+            # Run msiexec quietly and completely hidden
             cmd = ["msiexec.exe", "/i", str(msi_path), "/qn", "/norestart"]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            res = run_hidden_process(cmd, capture_output=True, timeout=120)
 
             if res.returncode == 0:
                 if on_log:

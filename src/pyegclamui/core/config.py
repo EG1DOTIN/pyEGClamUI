@@ -44,6 +44,18 @@ class AppPaths:
         return path
 
     @staticmethod
+    def get_database_dir() -> Path:
+        """Returns active virus database directory (ProgramData on Windows if present, else user data dir)."""
+        if sys.platform == "win32":
+            prog_data = os.getenv("ProgramData", "C:/ProgramData")
+            shared_db = Path(prog_data) / "ClamAV" / "database"
+            if shared_db.is_dir() and any(shared_db.glob("*.c*d")):
+                return shared_db
+        user_db = AppPaths.get_data_dir() / "database"
+        user_db.mkdir(parents=True, exist_ok=True)
+        return user_db
+
+    @staticmethod
     def get_quarantine_dir() -> Path:
         """Returns directory where quarantined threats are safely stored."""
         path = AppPaths.get_data_dir() / "quarantine"
@@ -131,7 +143,9 @@ class Config:
                 "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm"
             ],
             "include_only_extensions": [],
+            "prefer_daemon": True,
             "custom_clamscan_path": "",
+            "custom_clamdscan_path": "",
             "custom_clamd_path": "",
             "custom_freshclam_path": "",
             "clamd_tcp_port": 3310,

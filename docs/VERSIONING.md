@@ -31,115 +31,89 @@ flowchart LR
 
 ---
 
-## 2. Single Source of Truth (SSOT) Architecture
+## 2. Centric Single Source of Truth (SSOT) Architecture
 
-To eliminate version divergence and build drift, pyEGClamUI maintains a strict two-file statutory declaration:
-
-1. **Python Runtime SSOT**: [`src/pyegclamui/__init__.py`](../src/pyegclamui/__init__.py)  
-   Exposes the immutable `__version__` module attribute evaluated dynamically at runtime by the GUI, CLI, and telemetry engine.
-2. **Packaging Build SSOT**: [`pyproject.toml`](../pyproject.toml)  
-   Specifies the static package distribution version evaluated by `pip`, `wheel`, and `setuptools`.
-
-```mermaid
-flowchart TD
-    Init["src/pyegclamui/__init__.py<br/>(__version__ = '3.0.0')"] --> GUI["MainWindow About Tab<br/>(Dynamic Import)"]
-    Init --> Telem["Telemetry Diagnostic Dispatch<br/>(Dynamic Import)"]
-    Init --> Issue["Issue Submission Dialog<br/>(Dynamic Import)"]
-    Init --> Pytest["pytest Unit Test Verification<br/>(tests/test_version.py)"]
-
-    Pyproj["pyproject.toml<br/>(version = '3.0.0')"] --> Build["Wheel & sdist Build Engine<br/>(setuptools.build_meta)"]
-    Pyproj --> Installer["Universal Setup Script<br/>(setup/setup.py)"]
-    Pyproj --> Pytest
-
-    Readme["README.md<br/>(Release Badge & Header)"] -.->|Manual Sync| Init
-```
+To eliminate version divergence and eliminate manual multi-file edits, pyEGClamUI enforces a **Centric Single Source of Truth (SSOT)** model:
 
 > [!IMPORTANT]
-> **Zero Hardcoded Version Duplication**: Source code components (`main_window.py`, `telemetry.py`, `issue_dialog.py`) must **never** hardcode version strings. They must import `__version__` directly:
-> ```python
-> from pyegclamui import __version__
-> ```
-
----
-
-## 3. File Synchronization Matrix
-
-Whenever a new version is released, the following files must be reviewed and synchronized:
-
-| File Path | Role | Synchronization Rule | Verification Method |
-| :--- | :--- | :--- | :--- |
-| [`src/pyegclamui/__init__.py`](../src/pyegclamui/__init__.py) | Runtime package attribute | 🟢 **Primary SSOT** — update `__version__ = "X.Y.Z"` | Automated pytest |
-| [`pyproject.toml`](../pyproject.toml) | Packaging & distribution spec | 🟢 **Package SSOT** — update `version = "X.Y.Z"` | Automated pytest |
-| [`README.md`](../README.md) | Public landing & badge | Update version badge & current release text | Visual check |
-| [`TODO.md`](../TODO.md) | Release & packaging checklist | Update packaging commands with target version | Visual check |
-| [`docs/VERSIONING.md`](VERSIONING.md) | Versioning documentation | Update version table if major schema changes | Document review |
-
----
-
-## 4. Step-by-Step Release Bumping Workflow
-
-Follow this procedure sequentially to increment the application version and produce a release tag:
+> **One Place to Update**: You only ever update version information in **one single file**:  
+> 🟢 [`src/pyegclamui/__init__.py`](../src/pyegclamui/__init__.py) (`__version__ = "X.Y.Z"`).  
+> All other subsystems, packaging specifications, installers, and CI/CD pipelines consume this centric definition dynamically.
 
 ```mermaid
 flowchart TD
-    Step1["1. Update __version__ in src/pyegclamui/__init__.py"] --> Step2["2. Update version in pyproject.toml"]
-    Step2 --> Step3["3. Update README.md Badge & Header"]
-    Step3 --> Step4["4. Run Automated Test Suite (pytest tests/)"]
-    Step4 --> Check{"All 108+ Tests Pass?"}
-    Check -- "❌ Failure" --> Fix["Fix Test Divergence"] --> Step4
-    Check -- "🟢 Passed" --> Step5["5. Commit Version Bump (git commit)"]
-    Step5 --> Step6["6. Create Annotated Git Tag (git tag -a)"]
-    Step6 --> Step7["7. Push Commit & Tag to GitHub (git push --tags)"]
+    Init["src/pyegclamui/__init__.py<br/>(__version__ = '3.1.0')<br/>🟢 CENTRIC SINGLE SOURCE OF TRUTH"]
+
+    Init --> Pyproj["pyproject.toml<br/>(PEP 621 dynamic = ['version'])<br/>setuptools.dynamic attr"]
+    Init --> GUI["MainWindow & About Tab<br/>(from pyegclamui import __version__)"]
+    Init --> Telem["Telemetry & Diagnostic Engine<br/>(from pyegclamui import __version__)"]
+    Init --> BuildUnix["Linux/macOS Packager<br/>(scripts/build.py)"]
+    Init --> BuildWin["Windows Inno Setup Packager<br/>(scripts/package_windows_installer.py)"]
+    Init --> Pytest["pytest Test Suite<br/>(tests/test_version.py)"]
+
+    BuildWin --> Inno["Inno Setup Compiler<br/>(/DAppVersion=X.Y.Z)"]
+    Inno --> SetupExe["dist/pyEGClamUI-vX.Y.Z-Windows-Setup.exe"]
+    BuildUnix --> TarGz["dist/pyegclamui-vX.Y.Z-linux-x86_64.tar.gz<br/>dist/pyegclamui-vX.Y.Z-macos.zip"]
+    SetupExe --> Release["GitHub Releases Workflow<br/>(.github/workflows/build.yml)"]
+    TarGz --> Release
+```
+
+---
+
+## 3. Dynamic Synchronization Matrix
+
+| Subsystem / File | Role | How It Consumes Version |
+| :--- | :--- | :--- |
+| [`src/pyegclamui/__init__.py`](../src/pyegclamui/__init__.py) | **Centric Primary SSOT** | 🟢 **The ONLY file edited on version bumps** (`__version__ = "X.Y.Z"`) |
+| [`pyproject.toml`](../pyproject.toml) | Python Packaging Spec | ⚡ **100% Dynamic** — configured via `dynamic = ["version"]` and `[tool.setuptools.dynamic]` |
+| [`src/pyegclamui/gui/`](../src/pyegclamui/gui/) | Qt Desktop GUI | ⚡ **100% Dynamic** — imports `from pyegclamui import __version__` |
+| [`scripts/package_windows_installer.py`](../scripts/package_windows_installer.py) | Windows Staging & Packaging | ⚡ **100% Dynamic** — extracts `__version__` from `__init__.py` and invokes Inno Setup with `/DAppVersion` |
+| [`setup/windows/pyegclamui_installer.iss`](../setup/windows/pyegclamui_installer.iss) | Inno Setup Script | ⚡ **100% Dynamic** — receives `#define AppVersion` parameter from packaging script |
+| [`scripts/build.py`](../scripts/build.py) | Linux & macOS Packager | ⚡ **100% Dynamic** — dynamically extracts `__version__` for `.tar.gz` and `.zip` archives |
+| [`.github/workflows/build.yml`](../.github/workflows/build.yml) | GitHub Actions CI/CD | ⚡ **100% Dynamic** — executes packaging scripts that compile installers with centric version |
+| [`tests/test_version.py`](../tests/test_version.py) | Quality Assurance | 🛡️ Automated test verifying SemVer syntax and dynamic `pyproject.toml` mapping |
+
+---
+
+## 4. Single-Action Release Bumping Workflow
+
+Because versioning is centric, bumping the release version requires modifying only **one line** in the entire codebase:
+
+```mermaid
+flowchart TD
+    Step1["1. Update __version__ in src/pyegclamui/__init__.py (ONLY EDIT NEEDED)"] --> Step2["2. Run Test Suite (pytest tests/ - takes < 15 seconds)"]
+    Step2 --> Check{"All 119 Tests Pass?"}
+    Check -- "🟢 Passed" --> Step3["3. Commit & Tag (git commit & git tag -a vX.Y.Z)"]
+    Step3 --> Step4["4. Push to GitHub (git push origin vX.Y.Z)"]
+    Step4 --> CI["5. GitHub Actions builds Windows Setup.exe, Linux & macOS bundles automatically"]
 ```
 
 ### Procedure Details
 
-1. **Step 1 — Update Runtime SSOT**:
-   Open [`src/pyegclamui/__init__.py`](../src/pyegclamui/__init__.py) and set the target version:
+1. **Step 1 — Update the Centric Version**:
+   Edit [`src/pyegclamui/__init__.py`](../src/pyegclamui/__init__.py):
    ```python
    __version__ = "3.1.0"
    ```
 
-2. **Step 2 — Update Packaging Specification**:
-   Open [`pyproject.toml`](../pyproject.toml) and update the project table:
-   ```toml
-   [project]
-   name = "pyegclamui"
-   version = "3.1.0"
-   ```
-
-3. **Step 3 — Update Public Badges & Docs**:
-   Update [`README.md`](../README.md) header badge:
-   ```markdown
-   [![Version: 3.1.0](https://img.shields.io/badge/Version-3.1.0-00C853.svg)](docs/VERSIONING.md)
-   ```
-
-4. **Step 4 — Execute Automated Test Suite**:
-   Run the test suite inside `.venv` to verify syntax and ensure `__version__` synchronizes with `pyproject.toml`:
+2. **Step 2 — Execute Fast Automated Test Suite (< 15 seconds)**:
    ```bash
-   python -m pytest tests/test_version.py -v
-   python -m pytest tests/ -v
+   .venv\Scripts\python.exe -m pytest tests/ -v
    ```
 
-5. **Step 5 — Commit the Version Bump**:
-   Commit the synchronized version files:
+3. **Step 3 — Commit and Tag**:
    ```bash
-   git add src/pyegclamui/__init__.py pyproject.toml README.md
+   git add src/pyegclamui/__init__.py
    git commit -m "chore(release): bump version to 3.1.0"
+   git tag -a v3.1.0 -m "Release v3.1.0"
    ```
 
-6. **Step 6 — Tag the Release**:
-   Create a cryptographically signed or annotated git tag:
-   ```bash
-   git tag -a v3.1.0 -m "Release v3.1.0: Real-Time Guard and Resident Daemon Enhancements"
-   ```
-
-7. **Step 7 — Publish to Remote Repository**:
-   Push the commit and its associated tag to GitHub:
+4. **Step 4 — Push to GitHub**:
    ```bash
    git push origin main
    git push origin v3.1.0
    ```
+   GitHub Actions will automatically build `pyEGClamUI-v3.1.0-Windows-Setup.exe`, `pyegclamui-v3.1.0-linux-x86_64.tar.gz`, and `pyegclamui-v3.1.0-macos.zip`, publishing them directly to the release page.
 
 ---
 

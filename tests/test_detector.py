@@ -10,11 +10,14 @@ def test_detector_inspection():
     audit = detector.inspect()
 
     assert "clamscan_path" in audit
+    assert "clamdscan_path" in audit
     assert "clamd_path" in audit
     assert "freshclam_path" in audit
     assert "daemon_online" in audit
     assert isinstance(audit["daemon_online"], bool)
     assert "version" in audit
+    clamdscan = detector.get_clamdscan_path()
+    assert clamdscan is None or isinstance(clamdscan, str)
 
 
 def test_detector_unix_and_macos_paths():
@@ -29,3 +32,14 @@ def test_detector_standard_unix_sockets():
     socket_paths = [p.as_posix() for p in ClamEngineDetector.STANDARD_UNIX_SOCKETS]
     assert any("clamd.ctl" in p for p in socket_paths)
     assert any("clamd.sock" in p for p in socket_paths)
+
+
+def test_detector_caching():
+    detector = ClamEngineDetector()
+    first_inspect = detector.inspect()
+    second_inspect = detector.inspect()
+    assert first_inspect is second_inspect
+
+    detector.invalidate_cache()
+    assert detector._cached_inspect is None
+    assert detector._cached_version is None

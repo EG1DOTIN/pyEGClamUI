@@ -203,3 +203,26 @@ def test_update_dialog_and_worker(main_win, qapp):
     dlg.deleteLater()
     qapp.processEvents()
 
+
+def test_status_refresh_worker(main_win, qapp):
+    """Verifies that StatusRefreshWorker collects status metrics and updates the main window."""
+    win = main_win
+    from pyegclamui.gui.main_window import StatusRefreshWorker
+    worker = StatusRefreshWorker(win.detector, win.updater, win.service_mgr)
+
+    received_data = {}
+    def on_ready(data):
+        received_data.update(data)
+
+    worker.status_ready.connect(on_ready)
+    worker.run()  # Run directly to verify data emission
+
+    assert "audit" in received_data
+    assert "is_recent" in received_data
+    assert "db_status_msg" in received_data
+    assert "d_status" in received_data
+
+    win._apply_status_data(received_data)
+    qapp.processEvents()
+
+

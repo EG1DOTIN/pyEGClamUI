@@ -81,8 +81,9 @@ graph TD
 | **Core Abstraction** | `QuarantineManager` | [`../src/pyegclamui/core/quarantine.py`](../src/pyegclamui/core/quarantine.py) | SHA-256 fingerprinting, vault isolation & restoration |
 | **Core Abstraction** | `ClamUpdater` | [`../src/pyegclamui/core/updater.py`](../src/pyegclamui/core/updater.py) | `freshclam` process orchestrator & signature freshness |
 | **Core Abstraction** | `RealTimeGuard` | [`../src/pyegclamui/core/monitor.py`](../src/pyegclamui/core/monitor.py) | Watchdog event debounce pipeline & file lock checks |
-| **Core Abstraction** | `AutoStartManager` | [`../src/pyegclamui/core/autostart.py`](../src/pyegclamui/core/autostart.py) | Registry / XDG / LaunchAgent autostart management |
 | **Core Abstraction** | `LinuxDesktopManager` | [`../src/pyegclamui/core/desktop_integration.py`](../src/pyegclamui/core/desktop_integration.py) | XDG `.desktop` launcher and hicolor icon deployment |
+| **Core Abstraction** | `HiddenProcessEngine` | [`../src/pyegclamui/core/process.py`](../src/pyegclamui/core/process.py) | Centric hidden subprocess execution (`CREATE_NO_WINDOW`, `SW_HIDE`) |
+| **Core Abstraction** | `ClamDaemonServiceManager` | [`../src/pyegclamui/core/service_manager.py`](../src/pyegclamui/core/service_manager.py) | Windows Service / Linux systemctl / macOS brew daemon lifecycle |
 | **Core Abstraction** | `Config & AppPaths` | [`../src/pyegclamui/core/config.py`](../src/pyegclamui/core/config.py) | JSON settings persistence & dynamic platform path resolution |
 | **Core Abstraction** | `ClamEngineInstaller` | [`../src/pyegclamui/core/setup_engine.py`](../src/pyegclamui/core/setup_engine.py) | Automated package manager downloads & custom folder linking |
 | **Core Abstraction** | `DualTrackLogger` | [`../src/pyegclamui/core/logger.py`](../src/pyegclamui/core/logger.py) | 2MB timestamped rotation for errors and operational audit logs |

@@ -19,6 +19,7 @@ from pyegclamui.core.config import AppPaths, Config
 from pyegclamui.core.daemon import ClamDaemonClient
 from pyegclamui.core.detector import ClamEngineDetector
 from pyegclamui.core.logger import get_logger, log_scan_report
+from pyegclamui.core.process import spawn_hidden_process
 from pyegclamui.core.quarantine import QuarantineManager
 
 logger = get_logger("scanner")
@@ -111,9 +112,9 @@ class ClamScanner:
             "--bell",
         ]
 
-        user_db = AppPaths.get_data_dir() / "database"
-        if user_db.is_dir() and any(user_db.glob("*.c*d")):
-            args.extend(["--database", str(user_db.resolve())])
+        db_dir = AppPaths.get_database_dir()
+        if db_dir.is_dir() and any(db_dir.glob("*.c*d")):
+            args.extend(["--database", str(db_dir.resolve())])
 
         # File size limits
         max_size_mb = self.config.get("scan_settings", "max_file_size_mb", default=50)
@@ -148,6 +149,36 @@ class ClamScanner:
                 args.append(f"--exclude=.*\\.{clean_ext}$")
 
         # Target paths
+        args.extend(targets)
+        return args
+
+    def build_clamdscan_args(self, targets: List[str]) -> List[str]:
+        """
+        Builds safe, discrete argument array for clamdscan daemon client execution.
+        Supports Windows, Linux, and macOS platforms.
+        """
+        clamdscan_path = self.detector.get_clamdscan_path()
+        if not clamdscan_path:
+            raise FileNotFoundError("clamdscan executable not found. Please verify ClamAV is installed.")
+
+        args = [
+            clamdscan_path,
+            "--stdout",
+            "--multiscan",
+        ]
+
+        # On Unix/Linux/macOS: when using Unix domain socket, add --fdpass
+        # so clamd can scan user-owned files without permission issues
+        if sys.platform != "win32":
+            _, conn_type = self.detector.check_daemon_socket()
+            if "Unix Socket" in conn_type:
+                args.append("--fdpass")
+
+        # Check if custom clamd.conf exists
+        custom_conf = self.config.get("scan_settings", "custom_clamd_conf", default="")
+        if custom_conf and Path(custom_conf).is_file():
+            args.extend(["--config-file", str(Path(custom_conf).resolve())])
+
         args.extend(targets)
         return args
 
@@ -328,11 +359,13 @@ class ClamScanner:
         on_progress: Optional[Callable[[str], None]] = None,
         on_threat: Optional[Callable[[Dict[str, str]], None]] = None,
         on_status: Optional[Callable[[str], None]] = None,
-        prefer_daemon: bool = False,
+        prefer_daemon: Optional[bool] = None,
     ) -> ScanReport:
         """
         Executes scan synchronously (intended to run inside a worker thread).
-        If prefer_daemon is True and clamd is online, routes to scan_with_daemon.
+        Dynamically routes between clamdscan (daemon-accelerated) and clamscan (standalone),
+        falling back gracefully based on daemon availability and binary installation.
+        Works cross-platform across Windows, Linux, and macOS.
         """
         self.is_running = True
         self._cancelled = False
@@ -344,51 +377,63 @@ class ClamScanner:
             self.is_running = False
             return report
 
-        if prefer_daemon:
-            daemon_online, daemon_type = self.daemon_client.check_connection()
-            if daemon_online:
-                return self.scan_with_daemon(
-                    scan_type=scan_type,
-                    targets=targets,
-                    on_progress=on_progress,
-                    on_threat=on_threat,
-                    on_status=on_status,
-                )
+        if prefer_daemon is None:
+            prefer_daemon = self.config.get("scan_settings", "prefer_daemon", default=True)
 
-        try:
-            cmd = self.build_clamscan_args(targets)
-        except FileNotFoundError as fnf:
-            daemon_online, _ = self.daemon_client.check_connection()
+        cmd: Optional[List[str]] = None
+        engine_label = "clamscan"
+
+        # 1. Attempt daemon-accelerated clamdscan if daemon is online and preferred
+        if prefer_daemon:
+            daemon_online, _ = self.detector.check_daemon_socket()
             if daemon_online:
-                return self.scan_with_daemon(
-                    scan_type=scan_type,
-                    targets=targets,
-                    on_progress=on_progress,
-                    on_threat=on_threat,
-                    on_status=on_status,
-                )
-            report.summary_text = f"Error: {fnf}"
-            report.end_time = datetime.now()
-            self.is_running = False
-            return report
-        except Exception as e:
-            report.summary_text = f"Error: {e}"
-            report.end_time = datetime.now()
-            self.is_running = False
-            return report
+                clamdscan_path = self.detector.get_clamdscan_path()
+                if clamdscan_path:
+                    try:
+                        cmd = self.build_clamdscan_args(targets)
+                        engine_label = "clamdscan (Daemon Accelerated)"
+                        logger.info("Routing %s via %s (Daemon)", scan_type, clamdscan_path)
+                    except Exception as ex:
+                        logger.warning("Could not build clamdscan arguments: %s", ex)
+                        cmd = None
+
+        # 2. Fall back to standalone clamscan if clamdscan is unavailable
+        if cmd is None:
+            try:
+                cmd = self.build_clamscan_args(targets)
+                engine_label = "clamscan (Standalone)"
+                logger.info("Routing %s via standalone clamscan", scan_type)
+            except FileNotFoundError as fnf:
+                # 3. If neither clamdscan nor clamscan is installed, try native socket streaming
+                daemon_online, _ = self.detector.check_daemon_socket()
+                if daemon_online:
+                    logger.info("clamscan executable not found, falling back to socket daemon scan")
+                    return self.scan_with_daemon(
+                        scan_type=scan_type,
+                        targets=targets,
+                        on_progress=on_progress,
+                        on_threat=on_threat,
+                        on_status=on_status,
+                    )
+                report.summary_text = f"Error: {fnf}"
+                report.end_time = datetime.now()
+                self.is_running = False
+                return report
+            except Exception as e:
+                report.summary_text = f"Error: {e}"
+                report.end_time = datetime.now()
+                self.is_running = False
+                return report
 
         if on_status:
-            on_status(f"Starting {scan_type}...")
+            on_status(f"Starting {scan_type} via {engine_label}...")
 
-        # Setup process
+        # Setup process using centric hidden process execution
         try:
-            self.current_process = subprocess.Popen(
+            self.current_process = spawn_hidden_process(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
                 bufsize=1,
             )
         except Exception as e:
@@ -449,13 +494,16 @@ class ClamScanner:
         self.is_running = False
         self.current_process = None
 
+        if report.scanned_files == 0 and not report.cancelled and not report.threats_found:
+            report.scanned_files = len(targets)
+
         log_scan_report(
             scan_type=report.scan_type,
             duration_sec=report.duration_seconds(),
             scanned_count=report.scanned_files,
             threats_count=report.threats_found,
             targets=targets,
-            details="Engine: clamscan executable",
+            details=f"Engine: {engine_label}",
         )
 
         if on_status:

@@ -20,7 +20,7 @@ The application stores all user settings, scan limits, engine overrides, and pre
 
 ```json
 {
-  "version": "3.0.0",
+  "version": "3.1.0",
   "preferences": {
     "theme": "dark",
     "real_time_protection": false,
@@ -83,7 +83,9 @@ The application stores all user settings, scan limits, engine overrides, and pre
 | `scan_settings` | `max_recursion` | `integer` | `15` | Maximum nested directory or archive recursion depth |
 | `scan_settings` | `exclude_extensions` | `array` | `["jpg", ...]` | File extensions to skip during scans |
 | `scan_settings` | `include_only_extensions` | `array` | `[]` | When non-empty, only scan files matching these extensions |
+| `scan_settings` | `prefer_daemon` | `boolean` | `true` | Prefer clamd daemon acceleration via `clamdscan` over standalone `clamscan` |
 | `scan_settings` | `custom_clamscan_path` | `string` | `""` | Manual absolute path override for `clamscan` executable |
+| `scan_settings` | `custom_clamdscan_path` | `string` | `""` | Manual absolute path override for `clamdscan` client executable |
 | `scan_settings` | `custom_clamd_path` | `string` | `""` | Manual absolute path override for `clamd` executable |
 | `scan_settings` | `custom_freshclam_path` | `string` | `""` | Manual absolute path override for `freshclam` executable |
 | `scan_settings` | `clamd_unix_socket` | `string` | `"/var/run/clamav/clamd.ctl"` | clamd Unix domain socket path |
@@ -211,7 +213,7 @@ Telemetry is **100% Opt-In** (disabled by default) and requires explicit user co
 {
   "client_id": "Guest48291042",
   "app_name": "pyEGClamUI",
-  "app_version": "3.0.0",
+  "app_version": "3.1.0",
   "timestamp": "2026-09-22T12:00:00.000000+00:00",
   "display_name": "John Doe",
   "email": "john@example.com",
