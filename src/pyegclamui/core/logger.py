@@ -56,25 +56,29 @@ class TimestampedFileHandler(logging.Handler):
         return path
 
     def _ensure_file(self):
-        self.log_dir.mkdir(parents=True, exist_ok=True)
-        # Find latest log file for this type
-        existing = sorted(
-            [p for p in self.log_dir.glob(f"*-{self.log_type}*.log") if p.is_file()],
-            key=lambda p: p.stat().st_mtime if p.exists() else 0,
-            reverse=True,
-        )
+        try:
+            self.log_dir.mkdir(parents=True, exist_ok=True)
+            # Find latest log file for this type
+            existing = sorted(
+                [p for p in self.log_dir.glob(f"*-{self.log_type}*.log") if p.is_file()],
+                key=lambda p: p.stat().st_mtime if p.exists() else 0,
+                reverse=True,
+            )
 
-        if existing and existing[0].stat().st_size < self.max_bytes:
-            self.current_path = existing[0]
-        else:
-            self.current_path = self._get_new_path()
+            if existing and existing[0].stat().st_size < self.max_bytes:
+                self.current_path = existing[0]
+            else:
+                self.current_path = self._get_new_path()
 
-        if self.stream:
-            try:
-                self.stream.close()
-            except Exception:
-                pass
-        self.stream = open(self.current_path, "a", encoding="utf-8")
+            if self.stream:
+                try:
+                    self.stream.close()
+                except Exception:
+                    pass
+            self.stream = open(self.current_path, "a", encoding="utf-8")
+        except OSError:
+            self.current_path = None
+            self.stream = None
 
     def emit(self, record: logging.LogRecord):
         with self.lock:

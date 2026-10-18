@@ -453,8 +453,16 @@ class VenvManager:
                 self.logger.error("  sudo apt-get install -y python3-venv python3-pip")
             return False
 
+    def _is_32bit_architecture(self) -> bool:
+        """Determines if the running platform or Python runtime is 32-bit."""
+        mach = platform.machine().lower()
+        return (
+            mach in ("i386", "i686", "i486", "i586", "x86", "armv7l", "armv6l")
+            or (sys.maxsize <= 2**32 and sys.platform != "win32")
+        )
+
     def _verify_pyside6_runtime(self, py_exe: Path) -> bool:
-        """Verifies that PySide6 can initialize Qt GUI plugins on the system."""
+        """Verifies PySide6 Qt GUI availability and displays appropriate platform advice."""
         check_cmd = [str(py_exe), "-c", "import PySide6; from PySide6 import QtWidgets, QtCore; print('OK')"]
         res = run_hidden_process(check_cmd, capture_output=True)
         if res.returncode == 0:
@@ -462,7 +470,27 @@ class VenvManager:
             return True
 
         err_output = res.stderr.strip()
-        self.logger.warn("PySide6 package is installed, but Qt GUI libraries are missing on this system.")
+        is_32bit = self._is_32bit_architecture()
+
+        if "No module named 'PySide6'" in err_output or "ModuleNotFoundError" in err_output:
+            if is_32bit:
+                self.logger.warn(f"32-bit architecture ({platform.machine()}) detected.")
+                self.logger.info("Official PyPI wheels for PySide6 (Qt6 GUI) are 64-bit only on Linux.")
+                self.logger.info("On Debian/antiX 32-bit, you may test installing via apt:")
+                self.logger.info("  sudo apt-get install -y python3-pyside6")
+            else:
+                self.logger.warn("PySide6 GUI framework is not installed in the environment.")
+                self.logger.info("To install GUI support on 64-bit systems, run:")
+                self.logger.info("  .venv/bin/pip install 'PySide6>=6.2.0'")
+
+            self.logger.ok("pyEGClamUI Core Antivirus CLI tools installed and ready:")
+            self.logger.ok("  pyegclamui-scan --quick        (Fast ClamAV Scan)")
+            self.logger.ok("  pyegclamui-scan --full         (Comprehensive Scan)")
+            self.logger.ok("  pyegclamui-scan --path <dir>   (Scan Custom Directory)")
+            self.logger.ok("  pyegclamui-setup               (ClamAV Engine Setup)")
+            return True
+
+        self.logger.warn("PySide6 package is installed, but Qt GUI shared libraries are missing on this system.")
         if err_output:
             self.logger.warn(f"Diagnostic error: {err_output}")
         if sys.platform.startswith("linux"):
@@ -476,6 +504,10 @@ class VenvManager:
         if not py_exe.is_file():
             self.logger.error("Virtual environment Python binary not found. Cannot install dependencies.")
             return False
+
+        is_32bit = self._is_32bit_architecture()
+        if is_32bit:
+            self.logger.info(f"System architecture: {platform.machine()} (32-bit). Configuring core antivirus modules...")
 
         # 1. Upgrade pip, setuptools, wheel
         self.logger.info("Upgrading core build utilities (pip, setuptools, wheel)...")
@@ -589,14 +621,63 @@ class VenvManager:
                     self.logger.ok("pyEGClamUI installed successfully via requirements.txt fallback.")
                     return self._verify_pyside6_runtime(py_exe)
 
+        # Fallback 3: Direct core installation (clamd, psutil, watchdog, send2trash) + package install
+        self.logger.info("Retrying with core antivirus dependencies...")
+        core_pkgs = ["clamd>=1.0.2", "psutil>=5.9.0", "watchdog>=3.0.0", "send2trash>=1.8.0"]
+        if sys.platform == "win32":
+            core_pkgs.append("pywin32>=305")
+
+        core_cmd = [
+            str(py_exe),
+            "-m",
+            "pip",
+            "install",
+            "--prefer-binary",
+            "--default-timeout=120",
+        ] + core_pkgs
+        self.logger.exec(" ".join(core_cmd))
+        core_res = run_hidden_process(core_cmd, capture_output=True)
+        if core_res.returncode == 0:
+            if not is_32bit:
+                # Try lightweight PySide6-Essentials on 64-bit systems
+                pyside_cmd = [
+                    str(py_exe),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--prefer-binary",
+                    "--default-timeout=120",
+                    "PySide6-Essentials>=6.2.0",
+                ]
+                run_hidden_process(pyside_cmd, capture_output=True)
+
+            nodeps_cmd = [
+                str(py_exe),
+                "-m",
+                "pip",
+                "install",
+                "--no-build-isolation",
+                "--no-deps",
+                "-e",
+                str(self.project_root),
+            ]
+            self.logger.exec(" ".join(nodeps_cmd))
+            nodeps_res = run_hidden_process(nodeps_cmd, capture_output=True)
+            if nodeps_res.returncode == 0:
+                self.logger.ok("pyEGClamUI core engine installed successfully via core fallback.")
+                return self._verify_pyside6_runtime(py_exe)
+
         # Linux-specific diagnostic advice
         if sys.platform.startswith("linux"):
             arch = platform.machine().lower()
-            if arch in ("aarch64", "arm64", "armv7l"):
-                self.logger.warn(f"Note: Architecture is {arch}. Official PyPI wheels for PySide6 are not provided for Linux ARM.")
+            if is_32bit:
+                self.logger.warn(f"Note: Architecture is {arch} (32-bit). PySide6 wheels are not provided on PyPI.")
+                self.logger.info("On Debian/antiX/Ubuntu 32-bit, install PySide6 via system packages:")
+                self.logger.info("  sudo apt-get install -y python3-pyside6")
+            elif arch in ("aarch64", "arm64"):
+                self.logger.warn(f"Note: Architecture is {arch}. Official PyPI wheels for PySide6 may be unavailable.")
                 self.logger.info("On Debian/Ubuntu ARM, install PySide6 via system packages:")
                 self.logger.info("  sudo apt-get install -y python3-pyside6")
-                self.logger.info("Then rerun setup with --system-site-packages enabled.")
             else:
                 self.logger.info("If PySide6 failed on Debian/Ubuntu, verify system packages:")
                 self.logger.info("  sudo apt-get install -y python3-venv python3-pip python3-dev build-essential libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 libxcb-cursor0")

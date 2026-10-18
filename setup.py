@@ -40,6 +40,14 @@ if __name__ == "__main__":
         installer_script = Path(__file__).resolve().parent / "setup" / "setup.py"
         if installer_script.is_file():
             sys.exit(subprocess.call([sys.executable, str(installer_script)] + args))
+    else:
+        # Package distribution setup for setuptools / pip
+        try:
+            from setuptools import setup
+
+            setup()
+        except (ImportError, ModuleNotFoundError):
+            pass
 
 # Re-export public components from setup/setup.py so 'import setup' works seamlessly everywhere
 try:
@@ -55,10 +63,3 @@ try:
 except Exception:
     pass
 
-# Package distribution setup for setuptools / pip
-try:
-    from setuptools import setup
-
-    setup()
-except (ImportError, ModuleNotFoundError):
-    pass

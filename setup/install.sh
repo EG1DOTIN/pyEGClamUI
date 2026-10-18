@@ -108,6 +108,18 @@ if [[ "$OSTYPE" == "linux"* ]]; then
             echo -e "${CYAN}[*] Installing Qt6/PySide6 system GUI libraries via apt...${RESET}"
             sudo apt-get install -y $MISSING_QT_LIBS || echo -e "${YELLOW}[!] Warning: Some Qt libraries could not be auto-installed. PySide6 will rely on system defaults.${RESET}"
         fi
+
+        # Check for 32-bit architecture (antiX / Debian i386/i686)
+        ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m)
+        if [[ "$ARCH" == *"i386"* || "$ARCH" == *"i686"* ]]; then
+            echo -e "${YELLOW}[!] 32-bit architecture detected ($ARCH).${RESET}"
+            if ! "$PYTHON_BIN" -c "import PySide6" &>/dev/null; then
+                if apt-cache show python3-pyside6 &>/dev/null; then
+                    echo -e "${CYAN}[*] Installing python3-pyside6 via apt for 32-bit Qt support...${RESET}"
+                    sudo apt-get install -y python3-pyside6 || echo -e "${YELLOW}[!] Notice: python3-pyside6 install skipped. pyEGClamUI CLI scanner will be fully operational.${RESET}"
+                fi
+            fi
+        fi
     elif command -v dnf &>/dev/null; then
         if ! "$PYTHON_BIN" -c "import venv, ensurepip" &>/dev/null; then
             sudo dnf install -y python3-devel gcc mesa-libGL libxkbcommon-x11 xcb-util-cursor || true

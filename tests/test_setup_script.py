@@ -295,3 +295,77 @@ def test_run_uninstall_purge_all_mock(monkeypatch):
         assert not fake_config.exists()
         assert not fake_data.exists()
 
+
+def test_is_32bit_architecture_detection(monkeypatch=None):
+    """Validates 32-bit architecture detection for i686/i386/armv7."""
+    logger = SetupLogger()
+    venv_mgr = VenvManager(PROJECT_ROOT, logger)
+
+    import platform
+    orig_machine = platform.machine
+
+    try:
+        platform.machine = lambda: "i686"
+        assert venv_mgr._is_32bit_architecture() is True
+
+        platform.machine = lambda: "i386"
+        assert venv_mgr._is_32bit_architecture() is True
+
+        platform.machine = lambda: "armv7l"
+        assert venv_mgr._is_32bit_architecture() is True
+
+        platform.machine = lambda: "x86_64"
+        # On 64-bit systems sys.maxsize > 2**32
+        if sys.maxsize > 2**32:
+            assert venv_mgr._is_32bit_architecture() is False
+    finally:
+        platform.machine = orig_machine
+
+
+def test_verify_pyside6_runtime_when_missing():
+    """Validates that _verify_pyside6_runtime handles missing PySide6 cleanly without crashing."""
+    logs = []
+    logger = SetupLogger(callback=lambda msg, lvl: logs.append((msg, lvl)))
+    venv_mgr = VenvManager(PROJECT_ROOT, logger)
+
+    import setup as setup_mod
+    orig_run = setup_mod.run_hidden_process
+
+    class MockResult:
+        returncode = 1
+        stderr = "ModuleNotFoundError: No module named 'PySide6'"
+        stdout = ""
+
+    try:
+        setup_mod.run_hidden_process = lambda *args, **kwargs: MockResult()
+        fake_py = PROJECT_ROOT / ".venv" / "bin" / "python"
+        result = venv_mgr._verify_pyside6_runtime(fake_py)
+        assert result is True
+
+        # Check logged messages
+        log_texts = [msg for msg, lvl in logs]
+        assert any("Core Antivirus CLI tools installed" in m for m in log_texts)
+    finally:
+        setup_mod.run_hidden_process = orig_run
+
+
+def test_app_main_cli_fallback_when_pyside6_missing():
+    """Validates that pyegclamui.gui.app.main exits with helpful CLI instructions when PySide6 is unavailable."""
+    import pyegclamui.gui.app as app_mod
+    import builtins
+
+    orig_import = builtins.__import__
+
+    def mock_import(name, *args, **kwargs):
+        if name.startswith("PySide6"):
+            raise ImportError(f"No module named '{name}'")
+        return orig_import(name, *args, **kwargs)
+
+    try:
+        builtins.__import__ = mock_import
+        exit_code = app_mod.main()
+        assert exit_code == 1
+    finally:
+        builtins.__import__ = orig_import
+
+
