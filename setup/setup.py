@@ -1204,6 +1204,19 @@ def run_diagnostic_check(detector: SystemDetector, venv_mgr: VenvManager, logger
     print(f" * Operating System:    {platform.system()} {platform.release()} ({detector.arch})")
     print(f" * Python Version:      {py_status}")
 
+    # Hardware Capability & Deterministic GUI Qualification
+    try:
+        from pyegclamui.core.system_capability import get_system_specs
+        specs = get_system_specs()
+        gui_tier_str = f"{Colors.GREEN}{specs['gui_name']}{Colors.RESET}"
+        ram_str = f"{specs['ram_gb']} GB ({'64-bit' if specs['is_64bit'] else '32-bit'})"
+    except Exception:
+        is_64 = sys.maxsize > 2**32
+        gui_tier_str = f"{Colors.GREEN}Modern Qt6 Suite{Colors.RESET}" if is_64 else f"{Colors.GREEN}pyEGClamUI Lite (Tkinter){Colors.RESET}"
+        ram_str = "Auto-detected"
+    print(f" * Memory & Arch:       {ram_str}")
+    print(f" * Qualified GUI Tier:  {gui_tier_str}")
+
     # Virtual Environment Check
     venv_ok = venv_mgr.exists()
     if venv_mgr.is_cross_platform_corrupted():

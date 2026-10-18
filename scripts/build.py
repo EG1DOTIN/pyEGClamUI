@@ -161,6 +161,14 @@ def run_pyinstaller(plat_info: dict, onefile: bool = True) -> Path:
         "psutil",
         "--hidden-import",
         "send2trash",
+        "--hidden-import",
+        "tkinter",
+        "--hidden-import",
+        "tkinter.ttk",
+        "--hidden-import",
+        "tkinter.filedialog",
+        "--hidden-import",
+        "tkinter.messagebox",
     ]
 
     if plat_info["os_name"] == "windows":

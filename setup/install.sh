@@ -119,26 +119,31 @@ if [[ "$OSTYPE" == "linux"* ]]; then
             sudo apt-get install -y $MISSING_QT_LIBS || echo -e "${YELLOW}[!] Warning: Some Qt libraries could not be auto-installed. PySide6 will rely on system defaults.${RESET}"
         fi
 
+        # Check Tkinter availability for pyEGClamUI Lite GUI (especially on 32-bit or low-RAM systems)
+        if ! "$PYTHON_BIN" -c "import tkinter" &>/dev/null; then
+            echo -e "${CYAN}[*] Installing python3-tk for pyEGClamUI Lite GUI...${RESET}"
+            sudo apt-get install -y python3-tk || echo -e "${YELLOW}[!] Warning: python3-tk could not be auto-installed.${RESET}"
+        fi
+
         # Check for 32-bit architecture (antiX / Debian i386/i686)
         ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m)
         if [[ "$ARCH" == *"i386"* || "$ARCH" == *"i686"* ]]; then
             echo -e "${YELLOW}[!] 32-bit architecture detected ($ARCH).${RESET}"
-            if ! "$PYTHON_BIN" -c "import PySide6" &>/dev/null; then
-                if apt-cache show python3-pyside6 &>/dev/null; then
-                    echo -e "${CYAN}[*] Installing python3-pyside6 via apt for 32-bit Qt support...${RESET}"
-                    sudo apt-get install -y python3-pyside6 || true
-                else
-                    echo -e "${CYAN}[*] Note: PySide6 (Qt6 GUI) is 64-bit only. pyEGClamUI CLI scanner and daemon will be used.${RESET}"
-                fi
-            fi
+            echo -e "${GREEN}[+] pyEGClamUI Lite (Tkinter GUI) is qualified and ready for this machine.${RESET}"
         fi
     elif command -v dnf &>/dev/null; then
         if ! "$PYTHON_BIN" -c "import venv, ensurepip" &>/dev/null; then
-            sudo dnf install -y python3-devel gcc mesa-libGL libxkbcommon-x11 xcb-util-cursor || true
+            sudo dnf install -y python3-devel gcc mesa-libGL libxkbcommon-x11 xcb-util-cursor python3-tkinter || true
+        fi
+        if ! "$PYTHON_BIN" -c "import tkinter" &>/dev/null; then
+            sudo dnf install -y python3-tkinter || true
         fi
     elif command -v pacman &>/dev/null; then
         if ! "$PYTHON_BIN" -c "import venv, ensurepip" &>/dev/null; then
-            sudo pacman -S --noconfirm --needed base-devel libxkbcommon-x11 xcb-util-cursor || true
+            sudo pacman -S --noconfirm --needed base-devel libxkbcommon-x11 xcb-util-cursor tk || true
+        fi
+        if ! "$PYTHON_BIN" -c "import tkinter" &>/dev/null; then
+            sudo pacman -S --noconfirm --needed tk || true
         fi
     fi
 fi

@@ -143,18 +143,20 @@ pyEGClamUI/
 │       │   ├── quarantine.py          # Secure threat isolation vault
 │       │   ├── scanner.py             # Subprocess scanner & stream parser (clamd priority)
 │       │   ├── setup_engine.py        # Automated engine setup & installer
+│       │   ├── system_capability.py   # Hardware capability inspector & GUI tier qualification
 │       │   ├── telemetry.py           # Opt-in Firestore REST diagnostics & user profile
 │       │   └── updater.py             # freshclam signature updater
-│       └── gui/                       # PySide6 desktop user interface
-│           ├── app.py                 # Application lifecycle & main()
+│       └── gui/                       # Dual-tier desktop user interface (Qt6 & Tkinter)
+│           ├── app.py                 # Application lifecycle, dual-tier dispatcher & main()
 │           ├── icons.py               # Programmatic High-DPI Vector Icon Factory
-│           ├── main_window.py         # 5-tab dashboard window
+│           ├── main_window.py         # 5-tab dashboard window (Modern Qt6 Suite)
 │           ├── platform_theme.py      # Cross-platform native dark titlebar manager
 │           ├── scan_dialog.py         # Active scan progress dialog
 │           ├── setup_dialog.py        # Universal setup wizard dialog
 │           ├── styles.py              # Modular dark theme QSS styling
+│           ├── tk_app.py              # pyEGClamUI Lite Tkinter single-window dashboard
 │           └── tray.py                # System tray daemon & desktop notifications
-├── tests/                             # Automated pytest test suite (79 tests)
+├── tests/                             # Automated test suite (Dual-tier & core subsystems)
 ├── pyproject.toml                     # PEP 517/621 build configuration
 ├── requirements.txt                   # Backwards compatibility dependencies
 ├── LICENSE                            # GNU GPL-3.0 License
@@ -168,6 +170,7 @@ pyEGClamUI/
 | Subsystem | Source File | Description |
 | :--- | :--- | :--- |
 | **GUI Dashboard** | [`../src/pyegclamui/gui/main_window.py`](../src/pyegclamui/gui/main_window.py) | Main window with 5 tabs, reactive 3-tier status matrix, action handlers |
+| **Lite Tkinter Dashboard** | [`../src/pyegclamui/gui/tk_app.py`](../src/pyegclamui/gui/tk_app.py) | Ultra-lightweight (~15MB RAM) Tkinter GUI for 32-bit and low-spec systems |
 | **Active Scan Telemetry** | [`../src/pyegclamui/gui/scan_dialog.py`](../src/pyegclamui/gui/scan_dialog.py) | Active scan modal, progress bar, live path ticker, threat table |
 | **Engine Setup Wizard** | [`../src/pyegclamui/gui/setup_dialog.py`](../src/pyegclamui/gui/setup_dialog.py) | Guided engine discovery, installation wizard, custom path linker |
 | **System Tray Daemon** | [`../src/pyegclamui/gui/tray.py`](../src/pyegclamui/gui/tray.py) | Background tray icon, quick actions, native desktop notifications |
@@ -175,6 +178,7 @@ pyEGClamUI/
 | **Native Titlebar Manager** | [`../src/pyegclamui/gui/platform_theme.py`](../src/pyegclamui/gui/platform_theme.py) | Windows DWM immersive dark mode and cross-platform window theme |
 | **QSS Dark Theme** | [`../src/pyegclamui/gui/styles.py`](../src/pyegclamui/gui/styles.py) | Unified dark palette tokens and widget style definitions |
 | **Dual-Track Logger** | [`../src/pyegclamui/core/logger.py`](../src/pyegclamui/core/logger.py) | 2MB timestamped log rollover, audit tokens, sys.excepthook crash handler |
+| **Hardware Capability** | [`../src/pyegclamui/core/system_capability.py`](../src/pyegclamui/core/system_capability.py) | RAM and bit-width capability inspector for deterministic GUI tier assignment |
 | **Telemetry Manager** | [`../src/pyegclamui/core/telemetry.py`](../src/pyegclamui/core/telemetry.py) | Opt-in Firestore REST reporter, user profile ID, issue reporter |
 | **Engine Detector** | [`../src/pyegclamui/core/detector.py`](../src/pyegclamui/core/detector.py) | PATH and directory auto-discovery for clamscan, clamd, freshclam |
 | **Scanner Engine** | [`../src/pyegclamui/core/scanner.py`](../src/pyegclamui/core/scanner.py) | Subprocess execution, real-time output parsing, threat remediation |
