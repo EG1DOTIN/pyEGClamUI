@@ -79,6 +79,10 @@ if (-not $ClamDir -or -not (Test-Path (Join-Path $ClamDir "clamd.exe"))) {
     try {
         & $WingetPath install --id Cisco.ClamAV -e --silent --accept-package-agreements --accept-source-agreements
         Start-Sleep -Seconds 3
+        if (-not (Test-Path "C:\Program Files\ClamAV\clamd.exe")) {
+            & $WingetPath install ClamAV.ClamAV --silent --accept-package-agreements --accept-source-agreements
+            Start-Sleep -Seconds 3
+        }
         if (Test-Path "C:\Program Files\ClamAV\clamd.exe") {
             $ClamDir = "C:\Program Files\ClamAV"
             Log-Msg "[+] ClamAV successfully installed via winget to $ClamDir"

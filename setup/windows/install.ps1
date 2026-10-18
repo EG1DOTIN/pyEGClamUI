@@ -76,6 +76,7 @@ Set-Location $ProjectRoot
 
 # 2. Check for Python 3.9+
 $PythonCmd = $null
+$PythonArgs = @()
 if (Get-Command python -ErrorAction SilentlyContinue) {
     $PyVer = python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
     if ($PyVer -and ([version]$PyVer -ge [version]"3.9")) {
@@ -86,7 +87,8 @@ if (Get-Command python -ErrorAction SilentlyContinue) {
 if (-not $PythonCmd -and (Get-Command py -ErrorAction SilentlyContinue)) {
     $PyVer = py -3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
     if ($PyVer -and ([version]$PyVer -ge [version]"3.9")) {
-        $PythonCmd = "py -3"
+        $PythonCmd = "py"
+        $PythonArgs = @("-3")
     }
 }
 
@@ -129,4 +131,8 @@ if ($Start) {
 }
 
 # Execute master installer
-& $PythonCmd $SetupScript @ArgsList
+if ($PythonArgs.Count -gt 0) {
+    & $PythonCmd @PythonArgs $SetupScript @ArgsList
+} else {
+    & $PythonCmd $SetupScript @ArgsList
+}

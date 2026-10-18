@@ -78,6 +78,16 @@ if [ -z "$PYTHON_BIN" ]; then
         echo -e "${CYAN}[*] Installing Python3 via pacman...${RESET}"
         sudo pacman -S --noconfirm python python-pip base-devel
         PYTHON_BIN="python3"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        if command -v brew &>/dev/null; then
+            echo -e "${CYAN}[*] Installing Python3 via Homebrew...${RESET}"
+            brew install python
+            PYTHON_BIN="python3"
+        else
+            echo -e "${RED}[X] Python 3.9+ or Homebrew is required on macOS.${RESET}"
+            echo -e "${CYAN}[*] Please install Python from https://www.python.org or install Homebrew via https://brew.sh${RESET}"
+            exit 1
+        fi
     elif command -v brew &>/dev/null; then
         echo -e "${CYAN}[*] Installing Python3 via Homebrew...${RESET}"
         brew install python

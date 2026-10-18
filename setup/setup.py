@@ -478,8 +478,9 @@ class VenvManager:
                 self.logger.info("PySide6 (Qt6 GUI) is 64-bit only and not available for 32-bit Linux.")
             else:
                 self.logger.warn("PySide6 GUI framework is not installed in the environment.")
+                pip_hint = ".venv\\Scripts\\pip install 'PySide6>=6.2.0'" if sys.platform == "win32" else ".venv/bin/pip install 'PySide6>=6.2.0'"
                 self.logger.info("To install GUI support on 64-bit systems, run:")
-                self.logger.info("  .venv/bin/pip install 'PySide6>=6.2.0'")
+                self.logger.info(f"  {pip_hint}")
 
             self.logger.ok("pyEGClamUI Core Antivirus CLI tools installed and ready:")
             self.logger.ok("  pyegclamui-scan --quick        (Fast ClamAV Scan)")
@@ -704,10 +705,13 @@ class ClamAVProvisioner:
         if self.detector.os_type == "win32":
             if shutil.which("winget"):
                 self.logger.info("Installing ClamAV via Windows Package Manager (winget)...")
-                cmd = ["winget", "install", "ClamAV.ClamAV", "--accept-source-agreements", "--accept-package-agreements", "--silent"]
+                cmd = ["winget", "install", "--id", "Cisco.ClamAV", "-e", "--accept-source-agreements", "--accept-package-agreements", "--silent"]
                 self.logger.exec(" ".join(cmd))
                 res = run_hidden_process(cmd)
-                if res.returncode == 0 or self.detector.get_clamscan_path():
+                if not (res.returncode == 0 or self.detector.get_clamscan_path()):
+                    cmd_alt = ["winget", "install", "ClamAV.ClamAV", "--accept-source-agreements", "--accept-package-agreements", "--silent"]
+                    run_hidden_process(cmd_alt)
+                if self.detector.get_clamscan_path():
                     self.logger.ok("ClamAV installed successfully via winget.")
                     self.configure_windows_daemon()
                     return True
@@ -1086,12 +1090,17 @@ Type=Application
 Name=pyEGClamUI
 GenericName=Antivirus Interface
 Comment=Open-source desktop graphical interface for ClamAV
-Exec={python_exe} -m pyegclamui %F
+Exec="{python_exe}" -m pyegclamui %F
 Icon={target_icon}
 Terminal=false
 StartupNotify=true
 Categories=Utility;System;Security;
 Path={self.project_root}
+Actions=QuickScan;
+
+[Desktop Action QuickScan]
+Name=Run Quick Scan
+Exec="{python_exe}" -m pyegclamui.core.scanner --quick
 """
         target_desktop = apps_dir / "pyegclamui.desktop"
         target_desktop.write_text(desktop_content, encoding="utf-8")

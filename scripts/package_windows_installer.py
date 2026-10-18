@@ -103,23 +103,33 @@ def setup_embedded_python(target_dir: Path):
     log(f"Configured {pth_file.name} for isolated site-packages loading.")
 
 
+def get_production_dependencies() -> list[str]:
+    """Extracts non-testing production dependencies from requirements.txt."""
+    req_file = REPO_ROOT / "requirements.txt"
+    if not req_file.is_file():
+        raise FileNotFoundError(f"Missing requirements.txt at {req_file}")
+
+    core_pkgs = []
+    for line in req_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if any(line.startswith(pkg) for pkg in ["pytest", "pyinstaller", "pillow"]):
+            continue
+        # Strip trailing inline comments if any
+        if "  #" in line or " #" in line:
+            line = line.split("#", 1)[0].strip()
+        core_pkgs.append(line)
+    return core_pkgs
+
+
 def install_dependencies(target_lib_dir: Path):
     """Installs required Python packages into staging/lib directory."""
     log("Populating dependencies into staging/lib...")
     target_lib_dir.mkdir(parents=True, exist_ok=True)
 
-    req_file = REPO_ROOT / "requirements.txt"
-    if not req_file.is_file():
-        raise FileNotFoundError(f"Missing requirements.txt at {req_file}")
-
-    core_pkgs = [
-        "PySide6>=6.5.0",
-        "clamd>=1.0.2",
-        "psutil>=5.9.0",
-        "watchdog>=3.0.0",
-        "send2trash>=1.8.0",
-        "pywin32>=305",
-    ]
+    core_pkgs = get_production_dependencies()
+    log(f"Dependencies to install: {', '.join(core_pkgs)}")
 
     cmd = [
         sys.executable,
@@ -268,6 +278,7 @@ def main():
     parser = argparse.ArgumentParser(description="pyEGClamUI Windows Installer Staging & Build")
     parser.add_argument("--compile", action="store_true", help="Compile Inno Setup script after staging")
     parser.add_argument("--skip-deps", action="store_true", help="Skip downloading embedded Python and pip packages if staging already exists")
+    parser.add_argument("--bundle-engine", action="store_true", help="Bundle official ClamAV Windows binaries for full offline installer")
     args = parser.parse_args()
 
     log(f"Starting Windows Installer Staging for pyEGClamUI v{VERSION}")
@@ -289,6 +300,11 @@ def main():
         log("Reusing cached embedded Python and dependencies in staging/...")
 
     copy_application_files(STAGING_DIR)
+
+    # 3. Backend Antivirus Engine
+    engine_dir = STAGING_DIR / "engine"
+    if args.bundle_engine or Path("C:/Program Files/ClamAV/clamscan.exe").is_file():
+        bundle_clamav_engine(engine_dir)
 
     log("================================================================================")
     log(f"Staging completed successfully in: {STAGING_DIR}")

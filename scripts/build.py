@@ -97,12 +97,35 @@ def get_platform_info() -> dict:
 
 
 def clean_build_dirs():
-    """Removes previous build artifacts."""
+    """Removes previous build artifacts while preserving downloaded caches and installers."""
     print("[CLEAN] Cleaning previous build and dist directories...")
-    for dir_name in ["build", "dist"]:
-        d = REPO_ROOT / dir_name
-        if d.exists():
-            shutil.rmtree(d, ignore_errors=True)
+    build_dir = REPO_ROOT / "build"
+    if build_dir.exists():
+        for item in build_dir.iterdir():
+            if item.name == "cache":
+                continue  # preserve cached downloads (e.g. python embed zip)
+            if item.is_dir():
+                shutil.rmtree(item, ignore_errors=True)
+            else:
+                try:
+                    item.unlink()
+                except OSError:
+                    pass
+
+    dist_dir = REPO_ROOT / "dist"
+    if dist_dir.exists():
+        for item in dist_dir.iterdir():
+            # Preserve Inno Setup installer executable if already created
+            if item.is_file() and ("Setup" in item.name or "Installer" in item.name) and item.suffix.lower() == ".exe":
+                continue
+            if item.is_dir():
+                shutil.rmtree(item, ignore_errors=True)
+            else:
+                try:
+                    item.unlink()
+                except OSError:
+                    pass
+
     for spec in REPO_ROOT.glob("*.spec"):
         try:
             spec.unlink()
@@ -229,9 +252,20 @@ def create_archive(plat_info: dict, dist_dir: Path) -> Path:
 
     # Create zip or tar.gz
     if plat_info["archive_type"] == "zip":
-        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for item in staging_dir.rglob("*"):
-                zf.write(item, arcname=item.relative_to(staging_dir))
+        if plat_info["os_name"] == "macos" and shutil.which("ditto"):
+            # macOS native ditto preserves resource forks, code signatures, and symlinks
+            subprocess.check_call(
+                ["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(staging_dir), str(archive_path)]
+            )
+        elif plat_info["os_name"] == "macos" and shutil.which("zip"):
+            # macOS native zip with -y preserves framework symlinks
+            subprocess.check_call(
+                ["zip", "-r", "-y", "-q", str(archive_path), "."], cwd=str(staging_dir)
+            )
+        else:
+            with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for item in sorted(staging_dir.rglob("*")):
+                    zf.write(item, arcname=item.relative_to(staging_dir))
     else:
         with tarfile.open(archive_path, "w:gz") as tf:
             tf.add(staging_dir, arcname=f"pyegclamui-v{__version__}")

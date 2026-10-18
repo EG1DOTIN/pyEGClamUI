@@ -93,8 +93,8 @@ jobs:
       - name: Build Windows Inno Setup Installer & Portable Bundle
         if: runner.os == 'Windows'
         run: |
-          python scripts/package_windows_installer.py --compile
           python scripts/build.py --clean
+          python scripts/package_windows_installer.py --compile
 
       - name: Compile Linux and macOS Packages
         if: runner.os != 'Windows'
@@ -150,12 +150,18 @@ jobs:
           merge-multiple: true
 
       - name: Generate SHA256 Checksums
+        shell: bash
         run: |
           cd release_artifacts
           echo "=== Release Artifacts ==="
           ls -lh
           echo "=== SHA-256 Hashes ==="
-          sha256sum * > SHA256SUMS.txt
+          rm -f SHA256SUMS.txt
+          for f in *; do
+            if [ -f "$f" ] && [ "$f" != "SHA256SUMS.txt" ]; then
+              sha256sum "$f"
+            fi
+          done > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Publish GitHub Release
