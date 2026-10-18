@@ -25,13 +25,29 @@ SETUPTOOLS_COMMANDS = {
     "build",
     "build_py",
     "build_ext",
+    "build_clib",
+    "build_scripts",
     "clean",
+    "install",
+    "install_lib",
+    "install_headers",
+    "install_scripts",
+    "install_data",
+    "install_egg_info",
+    "editable_wheel",
+    "build_editable",
 }
 
 if __name__ == "__main__":
     args = sys.argv[1:]
     # If invoked with setuptools distribution build commands, pass to setuptools
-    is_setuptools_build = bool(args and args[0] in SETUPTOOLS_COMMANDS)
+    is_setuptools_build = bool(
+        args
+        and (
+            any(cmd in args for cmd in SETUPTOOLS_COMMANDS)
+            or any(arg.startswith("--dist-") or arg.startswith("--egg-base") for arg in args)
+        )
+    )
 
     if not is_setuptools_build:
         # User CLI execution (e.g. python setup.py, python setup.py --check, --help, --install, etc.)

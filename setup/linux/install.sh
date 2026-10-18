@@ -116,7 +116,9 @@ if [[ "$OSTYPE" == "linux"* ]]; then
             if ! "$PYTHON_BIN" -c "import PySide6" &>/dev/null; then
                 if apt-cache show python3-pyside6 &>/dev/null; then
                     echo -e "${CYAN}[*] Installing python3-pyside6 via apt for 32-bit Qt support...${RESET}"
-                    sudo apt-get install -y python3-pyside6 || echo -e "${YELLOW}[!] Notice: python3-pyside6 install skipped. pyEGClamUI CLI scanner will be fully operational.${RESET}"
+                    sudo apt-get install -y python3-pyside6 || true
+                else
+                    echo -e "${CYAN}[*] Note: PySide6 (Qt6 GUI) is 64-bit only. pyEGClamUI CLI scanner and daemon will be used.${RESET}"
                 fi
             fi
         fi

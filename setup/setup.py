@@ -475,9 +475,7 @@ class VenvManager:
         if "No module named 'PySide6'" in err_output or "ModuleNotFoundError" in err_output:
             if is_32bit:
                 self.logger.warn(f"32-bit architecture ({platform.machine()}) detected.")
-                self.logger.info("Official PyPI wheels for PySide6 (Qt6 GUI) are 64-bit only on Linux.")
-                self.logger.info("On Debian/antiX 32-bit, you may test installing via apt:")
-                self.logger.info("  sudo apt-get install -y python3-pyside6")
+                self.logger.info("PySide6 (Qt6 GUI) is 64-bit only and not available for 32-bit Linux.")
             else:
                 self.logger.warn("PySide6 GUI framework is not installed in the environment.")
                 self.logger.info("To install GUI support on 64-bit systems, run:")
@@ -671,9 +669,9 @@ class VenvManager:
         if sys.platform.startswith("linux"):
             arch = platform.machine().lower()
             if is_32bit:
-                self.logger.warn(f"Note: Architecture is {arch} (32-bit). PySide6 wheels are not provided on PyPI.")
-                self.logger.info("On Debian/antiX/Ubuntu 32-bit, install PySide6 via system packages:")
-                self.logger.info("  sudo apt-get install -y python3-pyside6")
+                self.logger.warn(f"Note: Architecture is {arch} (32-bit). PySide6 is not supported on 32-bit Linux.")
+                self.logger.info("pyEGClamUI CLI scanner and daemon are operational:")
+                self.logger.info("  pyegclamui-scan --quick / --full / --path <dir>")
             elif arch in ("aarch64", "arm64"):
                 self.logger.warn(f"Note: Architecture is {arch}. Official PyPI wheels for PySide6 may be unavailable.")
                 self.logger.info("On Debian/Ubuntu ARM, install PySide6 via system packages:")

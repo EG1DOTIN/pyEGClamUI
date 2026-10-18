@@ -62,9 +62,8 @@ def main() -> int:
         print("=" * 68)
         print(f"  PySide6 (Qt6 GUI) is not available: {e}")
         if arch.lower() in ("i386", "i686", "x86", "armv7l"):
-            print(f"  Note: Your architecture is {arch} (32-bit). PyPI wheels for PySide6")
-            print("  are 64-bit only. On Debian/antiX/Ubuntu 32-bit, you may test:")
-            print("    sudo apt-get install -y python3-pyside6")
+            print(f"  Note: Your architecture is {arch} (32-bit). PySide6 (Qt6 GUI)")
+            print("  is 64-bit only and not available for 32-bit Linux distributions.")
         else:
             print("  To install the GUI framework on 64-bit systems, run:")
             print("    pip install 'PySide6>=6.2.0'")

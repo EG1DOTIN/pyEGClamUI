@@ -220,6 +220,15 @@ def test_root_setup_module_reexport():
     assert "OK" in res.stdout
 
 
+def test_root_setup_editable_wheel_forwarding():
+    """Validates that setuptools packaging commands (e.g. editable_wheel) are handled by setuptools, not installer."""
+    cmd = [sys.executable, str(PROJECT_ROOT / "setup.py"), "editable_wheel", "--help"]
+    res = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    assert res.returncode == 0
+    assert "editable_wheel" in res.stdout
+    assert "unrecognized arguments" not in res.stderr
+
+
 def test_prompt_user_behavior(monkeypatch):
     """Tests prompt_user under purge_all, interactive yes/no, and non-interactive defaults."""
     # purge_all is always True
