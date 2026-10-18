@@ -205,17 +205,15 @@ pyegclamui --ui=tk     # Force Tier 2 Tkinter Lite GUI (low RAM mode)
 
 ---
 
-## 6. Phased Implementation Roadmap
+## 6. Phased Implementation Roadmap & Status
 
-When approved for development, implementation will follow these non-breaking phases:
-
-| Phase | Milestone | Deliverables | Risk Level |
+| Phase | Milestone | Deliverables | Status |
 | :---: | :--- | :--- | :---: |
-| **Phase 1** | **Capability Engine** | Implement [`system_capability.py`](../src/pyegclamui/core/) and unit tests | 🟢 Minimal |
-| **Phase 2** | **Tkinter Lite Interface** | Create `src/pyegclamui/gui/tk_app.py` dashboard connecting to core | 🟢 Low |
-| **Phase 3** | **Dispatcher Integration** | Update [`app.py`](../src/pyegclamui/gui/app.py) to route using the capability engine | 🟢 Low |
-| **Phase 4** | **Setup Script Sync** | Ensure `python3-tk` check in [`setup/setup.py`](../setup/setup.py) for 32-bit Linux | 🟢 Minimal |
-| **Phase 5** | **VM Verification** | Test on antiX 32-bit VirtualBox and 64-bit Linux/Windows | 🟢 Low |
+| **Phase 1** | **Capability Engine** | Implement [`system_capability.py`](../src/pyegclamui/core/system_capability.py) and boundary tests | 🟢 Completed |
+| **Phase 2** | **Tkinter Lite Interface** | Create [`tk_app.py`](../src/pyegclamui/gui/tk_app.py) dashboard connecting to decoupled core | 🟢 Completed |
+| **Phase 3** | **Dispatcher Integration** | Update [`app.py`](../src/pyegclamui/gui/app.py) to route using the capability engine & fallback | 🟢 Completed |
+| **Phase 4** | **Setup Suite Sync** | `python3-tk` checks in [`setup/setup.py`](../setup/setup.py), [`install.sh`](../setup/install.sh), and CI | 🟢 Completed |
+| **Phase 5** | **Test Verification** | Automated test matrix across unit suites ([`tests/`](../tests/)) | 🟢 Completed |
 
 ---
 

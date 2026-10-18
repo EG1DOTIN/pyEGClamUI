@@ -227,15 +227,78 @@ sequenceDiagram
 
 ---
 
-## 8. Related Source Modules & Unit Tests
+---
+
+## 8. Tier 2: pyEGClamUI Lite (`tk_app.py`) Architecture & Design
+
+* **Source File**: [`../src/pyegclamui/gui/tk_app.py`](../src/pyegclamui/gui/tk_app.py) (`TkinterApp`, `run_tkinter_app`)
+* **Dedicated Plan**: [`ADAPTIVE_GUI_DESIGN_PLAN.md`](ADAPTIVE_GUI_DESIGN_PLAN.md)
+
+For 32-bit systems and machines with less than 4.0 GB of RAM, pyEGClamUI dynamically boots into **pyEGClamUI Lite**—a native, lightweight dashboard powered exclusively by Python's built-in `tkinter` and `ttk` modules.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as TkinterApp (Main GUI Thread)
+    participant Queue as thread-safe queue.Queue()
+    participant Worker as Background threading.Thread
+    participant Scanner as ClamScanner / ClamUpdater
+
+    UI->>Worker: threading.Thread(target=_worker, daemon=True).start()
+    Worker->>Scanner: Run scan or freshclam update
+    loop Asynchronous Processing
+        Scanner-->>Worker: Progress callback (path / threat / status)
+        Worker->>Queue: queue.put(("progress_file", path))
+        UI->>UI: root.after(50, _poll_event_queue) (Main Thread)
+        Queue-->>UI: queue.get_nowait()
+        UI->>UI: Update progressbar & colored monospace text stream
+    end
+    Scanner-->>Worker: Completed
+    Worker->>Queue: queue.put(("scan_done", report))
+    Queue-->>UI: Update buttons, refresh quarantine tree, notify user
+```
+
+### 8.1 Layout & Visual Structure
+
+pyEGClamUI Lite is structured as a focused single-window dashboard (880x560 minimum geometry) utilizing a modern `ttk.Notebook` container:
+
+1. **⚡ Antivirus Scanner Tab**:
+   * **Action Bar**: Quick Scan, Full System Scan, Custom Folder Scan, and Stop Scan buttons.
+   * **Progress & Metrics Card**: Indeterminate/determinate progress indicator with real-time stats ticker (Files Scanned, Threats Found, Elapsed Time `HH:MM:SS`).
+   * **Live Stream Console**: Dark-themed monospace stream (`#1e1e1e`) with color-coded syntax tags:
+     * 🟢 `clean`: Clean file path (`#4ade80`)
+     * 🔴 `threat`: Isolated threat detection with highlighted badge (`#f87171` on `#450a0a`)
+     * 🟡 `warn`: Administrative notices and scan cancellations (`#fbbf24`)
+     * ⚪ `info`: Initialization parameters and directory targets (`#94a3b8`)
+2. **🛡️ Quarantine Vault Tab**:
+   * **Vault Treeview**: Multi-column data grid (`id`, `threat`, `original_path`, `date`, `size`).
+   * **Remediation Actions**: Immediate "Restore Selected" (with user confirmation) and "Delete Permanently" (with permanent purge confirmation).
+3. **🔄 Maintenance & Signatures Tab**:
+   * **FreshClam Monitor**: Path to freshclam binary and real-time database recency check.
+   * **Live Update Trigger**: "Update Virus Signatures Now" button initiating background database download with real-time log output.
+4. **Status Footer**: Persistent hardware and platform capability readout.
+
+### 8.2 Concurrency & Thread-Safety Rules
+
+* **Zero Event Loop Blocking**: Heavy disk scans and HTTP signature updates execute in dedicated daemon worker threads (`threading.Thread(..., daemon=True)`).
+* **Decoupled Queue Communication**: Background threads communicate exclusively through `queue.Queue()`, never directly touching Tkinter widget state.
+* **Safe Window Destruction**: Intercepts `WM_DELETE_WINDOW` protocol (`self.root.protocol("WM_DELETE_WINDOW", self._on_close)`); if a scan is active, it prompts for user confirmation and cleanly invokes `self.scanner.stop()` before disposing of the window.
+
+---
+
+## 9. Related Source Modules & Unit Tests
 
 * **Implementation**:
-  - [`src/pyegclamui/gui/app.py`](../src/pyegclamui/gui/app.py) — Application entry point, crash handler, high-DPI initialization.
-  - [`src/pyegclamui/gui/icons.py`](../src/pyegclamui/gui/icons.py) — Programmatic High-DPI anti-aliased vector icon factory.
-  - [`src/pyegclamui/gui/main_window.py`](../src/pyegclamui/gui/main_window.py) — 5-tab main dashboard window and reactive status matrix.
-  - [`src/pyegclamui/gui/styles.py`](../src/pyegclamui/gui/styles.py) — Centralized QSS dark theme stylesheet and color constants.
-  - [`src/pyegclamui/gui/platform_theme.py`](../src/pyegclamui/gui/platform_theme.py) — Windows DWM dark titlebar hardening.
-  - [`src/pyegclamui/gui/scan_dialog.py`](../src/pyegclamui/gui/scan_dialog.py) — Active scan dialog with live tickers and progress ring.
-  - [`src/pyegclamui/gui/setup_dialog.py`](../src/pyegclamui/gui/setup_dialog.py) — Universal ClamAV setup and installer wizard.
+  - [`../src/pyegclamui/gui/app.py`](../src/pyegclamui/gui/app.py) — Application entry point, crash handler, dual-tier dynamic dispatcher.
+  - [`../src/pyegclamui/core/system_capability.py`](../src/pyegclamui/core/system_capability.py) — Deterministic hardware inspector and tier classifier.
+  - [`../src/pyegclamui/gui/tk_app.py`](../src/pyegclamui/gui/tk_app.py) — pyEGClamUI Lite Tkinter standalone dashboard.
+  - [`../src/pyegclamui/gui/main_window.py`](../src/pyegclamui/gui/main_window.py) — Tier 1 PySide6 5-tab main dashboard window.
+  - [`../src/pyegclamui/gui/styles.py`](../src/pyegclamui/gui/styles.py) — Centralized QSS dark theme stylesheet and color constants.
+  - [`../src/pyegclamui/gui/platform_theme.py`](../src/pyegclamui/gui/platform_theme.py) — Windows DWM dark titlebar hardening.
+  - [`../src/pyegclamui/gui/scan_dialog.py`](../src/pyegclamui/gui/scan_dialog.py) — Active scan dialog with live tickers.
+  - [`../src/pyegclamui/gui/setup_dialog.py`](../src/pyegclamui/gui/setup_dialog.py) — Universal ClamAV setup and installer wizard.
 * **Automated Tests**:
-  - [`tests/test_main_window.py`](../tests/test_main_window.py) — Validates window initialization, tab switching, and reactive badge updates.
+  - [`../tests/test_system_capability.py`](../tests/test_system_capability.py) — 9 comprehensive tests for hardware limits, RAM boundaries, and overrides.
+  - [`../tests/test_tk_app.py`](../tests/test_tk_app.py) — 15 comprehensive tests for Tkinter Lite UI states, queue events, and quarantine actions.
+  - [`../tests/test_app_dispatch.py`](../tests/test_app_dispatch.py) — 6 comprehensive tests for CLI tier flags and fallback routing.
+

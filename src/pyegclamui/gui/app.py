@@ -63,13 +63,14 @@ def parse_gui_options(args: list[str]) -> Tuple[Optional[str], bool, Optional[st
     target_path: Optional[str] = None
 
     for arg in args[1:]:
-        if arg in ("--minimized", "-m"):
+        arg_lower = arg.lower()
+        if arg_lower in ("--minimized", "-m"):
             start_minimized = True
-        elif arg in ("--lite", "--tk", "--tkinter", "--tier2"):
+        elif arg_lower in ("--lite", "--tk", "--tkinter", "--tier2"):
             tier_override = "tkinter"
-        elif arg in ("--qt", "--qt6", "--pyside6", "--tier1"):
+        elif arg_lower in ("--qt", "--qt6", "--pyside6", "--tier1"):
             tier_override = "pyside6"
-        elif arg.startswith("--ui="):
+        elif arg_lower.startswith("--ui="):
             val = arg.split("=", 1)[1].strip().lower()
             if val in ("tk", "tkinter", "lite", "tier2"):
                 tier_override = "tkinter"
@@ -77,7 +78,7 @@ def parse_gui_options(args: list[str]) -> Tuple[Optional[str], bool, Optional[st
                 tier_override = "pyside6"
             else:
                 tier_override = val
-        elif arg.startswith("--tier="):
+        elif arg_lower.startswith("--tier="):
             val = arg.split("=", 1)[1].strip().lower()
             if val in ("tk", "tkinter", "lite", "tier2"):
                 tier_override = "tkinter"

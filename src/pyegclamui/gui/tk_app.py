@@ -365,10 +365,29 @@ class TkinterApp:
         self.active_scan_thread = threading.Thread(target=_worker, daemon=True)
         self.active_scan_thread.start()
 
+    def _show_info(self, title: str, message: str):
+        if messagebox:
+            messagebox.showinfo(title, message)
+
+    def _show_warning(self, title: str, message: str):
+        if messagebox:
+            messagebox.showwarning(title, message)
+
+    def _show_error(self, title: str, message: str):
+        if messagebox:
+            messagebox.showerror(title, message)
+
+    def _ask_yes_no(self, title: str, message: str) -> bool:
+        if messagebox:
+            return bool(messagebox.askyesno(title, message))
+        return True
+
     def _stop_scan(self):
         if not self.is_scanning:
             return
+        self.is_scanning = False
         self.scanner.stop()
+        self.btn_stop.config(state=tk.DISABLED)
         self.lbl_progress.config(text="Stopping scan...")
         self._log_msg("Scan stop requested by user.", "warn")
 
@@ -392,34 +411,42 @@ class TkinterApp:
     def _restore_quarantined(self):
         selected = self.tree_q.selection()
         if not selected:
-            messagebox.showinfo("Quarantine", "Please select an item to restore.")
+            self._show_info("Quarantine", "Please select an item to restore.")
             return
 
-        values = self.tree_q.item(selected[0], "values")
+        raw_values = self.tree_q.item(selected[0], "values")
+        values = raw_values.get("values", ()) if isinstance(raw_values, dict) else raw_values
+        if not values or len(values) < 3:
+            return
         q_id = values[0]
-        if messagebox.askyesno("Restore File", f"Are you sure you want to restore:\n{values[2]}?\nEnsure this file is safe."):
+        orig_path = values[2]
+        if self._ask_yes_no("Restore File", f"Are you sure you want to restore:\n{orig_path}?\nEnsure this file is safe."):
             ok, msg = self.quarantine_vault.restore_item(q_id)
             if ok:
-                messagebox.showinfo("Quarantine", f"File restored successfully:\n{msg}")
+                self._show_info("Quarantine", f"File restored successfully:\n{msg}")
                 self._refresh_quarantine_view()
             else:
-                messagebox.showerror("Quarantine", f"Failed to restore file:\n{msg}")
+                self._show_error("Quarantine", f"Failed to restore file:\n{msg}")
 
     def _delete_quarantined(self):
         selected = self.tree_q.selection()
         if not selected:
-            messagebox.showinfo("Quarantine", "Please select an item to delete.")
+            self._show_info("Quarantine", "Please select an item to delete.")
             return
 
-        values = self.tree_q.item(selected[0], "values")
+        raw_values = self.tree_q.item(selected[0], "values")
+        values = raw_values.get("values", ()) if isinstance(raw_values, dict) else raw_values
+        if not values or len(values) < 3:
+            return
         q_id = values[0]
-        if messagebox.askyesno("Delete Permanently", f"Permanently delete {values[2]} from vault?\nThis cannot be undone."):
+        orig_path = values[2]
+        if self._ask_yes_no("Delete Permanently", f"Permanently delete {orig_path} from vault?\nThis cannot be undone."):
             ok, msg = self.quarantine_vault.delete_item(q_id)
             if ok:
-                messagebox.showinfo("Quarantine", f"Item deleted from vault:\n{msg}")
+                self._show_info("Quarantine", f"Item deleted from vault:\n{msg}")
                 self._refresh_quarantine_view()
             else:
-                messagebox.showerror("Quarantine", f"Failed to delete item:\n{msg}")
+                self._show_error("Quarantine", f"Failed to delete item:\n{msg}")
 
     # --------------------------------------------------------------------------
     # Maintenance & Signatures
@@ -499,12 +526,12 @@ class TkinterApp:
 
                     if report.threats_found > 0:
                         self._refresh_quarantine_view()
-                        messagebox.showwarning(
+                        self._show_warning(
                             "Threats Detected",
                             f"Scan completed: {report.threats_found} threat(s) detected and remediated according to preferences."
                         )
                     else:
-                        messagebox.showinfo("Scan Clean", "Scan completed. No malware found on target paths.")
+                        self._show_info("Scan Clean", "Scan completed. No malware found on target paths.")
 
                 elif ev_type == "maint_log":
                     self._log_maint(msg[1])
@@ -513,7 +540,7 @@ class TkinterApp:
                     self.is_updating = False
                     self.btn_update_sig.config(state=tk.NORMAL)
                     self._log_maint(msg[1])
-                    messagebox.showinfo("Signatures Updated", msg[1])
+                    self._show_info("Signatures Updated", msg[1])
 
         except queue.Empty:
             pass
@@ -530,7 +557,7 @@ class TkinterApp:
 
     def _on_close(self):
         if self.is_scanning:
-            if not messagebox.askyesno("Exit pyEGClamUI", "A scan is currently running. Stop scan and exit?"):
+            if not self._ask_yes_no("Exit pyEGClamUI", "A scan is currently running. Stop scan and exit?"):
                 return
             self.scanner.stop()
             self.is_scanning = False

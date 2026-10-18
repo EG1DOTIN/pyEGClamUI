@@ -120,3 +120,53 @@ After deployment, `LinuxDesktopManager` automatically invokes `update-desktop-da
 1. **Menu Bar Status Item**: On macOS, `QSystemTrayIcon` manifests as a native item in the top macOS Menu Bar.
 2. **Icon Optimization**: While Windows uses `.ico` files, macOS requires high-DPI `.png` assets. pyEGClamUI's `AppPaths.get_app_icon_path()` automatically detects macOS and selects the crisp 256x256 PNG asset.
 3. **Application Lifecycle**: In accordance with macOS human interface guidelines, closing the main window hides the window rather than terminating the process (`setQuitOnLastWindowClosed(False)`). The application continues running in the background and can be re-opened from the Menu Bar or Dock.
+
+---
+
+## 7. Dual-Tier Adaptive GUI & Vintage / Low-Memory Hardware Support
+
+* **Source Files**: [`../src/pyegclamui/core/system_capability.py`](../src/pyegclamui/core/system_capability.py), [`../src/pyegclamui/gui/tk_app.py`](../src/pyegclamui/gui/tk_app.py), [`../src/pyegclamui/gui/app.py`](../src/pyegclamui/gui/app.py)
+
+To guarantee true platform independence, pyEGClamUI features an adaptive dual-tier graphical architecture that effortlessly accommodates modern high-end workstations as well as vintage 32-bit machines, lightweight Linux distributions (such as **antiX**, **Puppy Linux**, and **Debian 32-bit**), and low-resource virtual machines.
+
+### 7.1 Architecture & Resource Compatibility Matrix
+
+| Hardware Tier | CPU Architecture | Physical RAM | Qualified Interface | Framework Dependencies |
+| :--- | :--- | :--- | :--- | :--- |
+| **Tier 1: Modern Workstation** | 🟢 64-bit (`x86_64`, `amd64`, `arm64`) | 🟢 `>= 4.0 GB` (calibrated 3.75 GB) | ⚡ Modern Suite | PySide6 / Qt6 + QSS Theme |
+| **Tier 2: Resource-Constrained** | 🟢 64-bit (`x86_64`, `amd64`, `arm64`) | 🟡 `< 4.0 GB` (512 MB – 3.75 GB) | 🛡️ pyEGClamUI Lite | Python Standard Library (`tkinter.ttk`) |
+| **Tier 2: Legacy 32-bit System** | 🟡 32-bit (`i386`, `i686`, `x86`, `armhf`) | 🟢 Any memory capacity | 🛡️ pyEGClamUI Lite | Python Standard Library (`tkinter.ttk`) |
+| **Headless / Remote Server** | 🟢 Any architecture | 🟢 Any memory capacity | ⚡ Pure CLI Mode | `pyegclamui-scan`, `pyegclamui-setup` |
+
+### 7.2 Why 32-Bit Linux Requires Tkinter Lite
+
+Modern Qt6 and PySide6 do not provide official prebuilt wheels for 32-bit x86 or 32-bit ARM architectures on PyPI, and compiling Qt6 from source on a 1 GB RAM machine inevitably exhausts virtual memory. 
+
+By contrast, **pyEGClamUI Lite** uses Python's standard library `tkinter` and `ttk` themed widgets:
+* **Zero Third-Party GUI Dependencies**: Runs directly on system Python without heavy compilation steps.
+* **Minimal Memory Overhead**: Consumes only ~30 MB RSS memory compared to ~150 MB RSS for Qt6.
+* **Full Antivirus Feature Parity**: Delivers identical core functionality: Quick Scan, Full System Scan, Custom Folder Scan, Quarantine Vault restore/delete, and live FreshClam database updates.
+
+### 7.3 Provisioning Tkinter on Minimal Distributions
+
+If `tkinter` is not preinstalled in minimal distribution environments, install it via the system package manager:
+
+```bash
+# Debian, Ubuntu, antiX, Raspberry Pi OS:
+sudo apt-get install -y python3-tk
+
+# Fedora, RHEL, CentOS Stream:
+sudo dnf install -y python3-tkinter
+
+# Arch Linux, Manjaro:
+sudo pacman -S --noconfirm tk
+```
+
+> [!TIP]
+> You can explicitly force the lightweight interface on any machine using the `--ui=tk` or `--lite` CLI options:
+> ```bash
+> pyegclamui --lite
+> # or via standalone launcher:
+> pyegclamui-lite
+> ```
+

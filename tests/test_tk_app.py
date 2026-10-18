@@ -1,15 +1,12 @@
 """
 Unit tests for pyEGClamUI Lite Tkinter interface (src/pyegclamui/gui/tk_app.py).
 
-Validates:
-  - Graceful handling when Tkinter is not installed (tk is None)
-  - Headless display error handling (TclError)
-  - TkinterApp initialization with mock root
-  - Thread-safe event queue processing (progress, threats, scan completion)
-  - Quarantine treeview population and operations
+Comprehensive test coverage for UI state progression, threaded worker event processing,
+quarantine operations, error handling, and corner cases.
 """
 
 import os
+import queue
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -22,7 +19,8 @@ import pyegclamui.gui.tk_app as tk_app_mod
 from pyegclamui.core.scanner import ScanReport
 
 
-def _create_test_app(mock_root):
+
+def _create_test_app(mock_root, initial_path=None):
     """Helper to initialize TkinterApp with properly configured mock core dependencies."""
     mock_detector = MagicMock()
     mock_detector.get_clamscan_path.return_value = "/usr/bin/clamscan"
@@ -31,6 +29,7 @@ def _create_test_app(mock_root):
 
     mock_updater = MagicMock()
     mock_updater.is_database_recent.return_value = (True, "Up to date")
+    mock_updater.run_update.return_value = (True, "Database updated")
 
     mock_scanner = MagicMock()
     mock_scanner.get_quick_scan_paths.return_value = ["/home/user/Downloads"]
@@ -50,7 +49,7 @@ def _create_test_app(mock_root):
     ), patch(
         "pyegclamui.gui.tk_app.ClamUpdater", return_value=mock_updater
     ):
-        app = tk_app_mod.TkinterApp(mock_root)
+        app = tk_app_mod.TkinterApp(mock_root, initial_path=initial_path)
         app.tree_q = MagicMock()
         app.tree_q.get_children.return_value = []
         return app, mock_detector, mock_qm, mock_scanner, mock_updater
@@ -73,7 +72,9 @@ def test_run_tkinter_app_on_tcl_error():
     mock_tk.TclError = MockTclError
     mock_tk.Tk.side_effect = MockTclError("no display name and no $DISPLAY environment variable")
 
-    with patch.object(tk_app_mod, "tk", mock_tk):
+    with patch.object(tk_app_mod, "tk", mock_tk), patch.object(
+        tk_app_mod, "_tk_installed", True
+    ):
         exit_code = tk_app_mod.run_tkinter_app()
         assert exit_code == 1
 
@@ -105,13 +106,41 @@ def test_tkinter_app_event_queue_processing():
     mock_report.end_time = mock_report.start_time
     app.event_queue.put(("scan_done", mock_report))
 
-    # Process queue
-    with patch.object(tk_app_mod, "messagebox", MagicMock()):
+    # Process queue with mocked alert helpers
+    with patch.object(app, "_show_warning") as mock_warn:
         app._poll_event_queue()
+        mock_warn.assert_called_once()
 
     assert app.scanned_count == 1
     assert app.threats_count == 1
     assert app.is_scanning is False
+
+
+def test_tkinter_app_event_queue_clean_scan():
+    """Validates scan_done processing when no threats are found."""
+    mock_root = MagicMock()
+    app, _, _, _, _ = _create_test_app(mock_root)
+
+    mock_report = ScanReport(scan_type="Full Scan")
+    mock_report.scanned_files = 42
+    mock_report.threats_found = 0
+    mock_report.end_time = mock_report.start_time
+    app.event_queue.put(("scan_done", mock_report))
+
+    with patch.object(app, "_show_info") as mock_info:
+        app._poll_event_queue()
+        mock_info.assert_called_once()
+        assert "Scan Clean" in mock_info.call_args[0][0]
+
+
+def test_tkinter_app_unknown_event_in_queue():
+    """Validates that unrecognized event tuples in queue do not crash the poller."""
+    mock_root = MagicMock()
+    app, _, _, _, _ = _create_test_app(mock_root)
+
+    app.event_queue.put(("unknown_custom_event", "payload"))
+    # Should drain queue safely
+    app._poll_event_queue()
 
 
 def test_tkinter_app_stop_scan():
@@ -122,6 +151,10 @@ def test_tkinter_app_stop_scan():
 
     app._stop_scan()
     mock_scanner.stop.assert_called_once()
+
+    # Repeated calls should be no-ops
+    app._stop_scan()
+    assert mock_scanner.stop.call_count == 1
 
 
 def test_tkinter_app_quarantine_refresh():
@@ -146,6 +179,187 @@ def test_tkinter_app_quarantine_refresh():
     assert inserted_values[4] == "2 KB"
 
 
+def test_tkinter_app_quarantine_restore_actions():
+    """Validates restore quarantined file handling user confirmation Yes and No."""
+    mock_root = MagicMock()
+    app, _, mock_qm, _, _ = _create_test_app(mock_root)
+
+    # 1. No item selected
+    app.tree_q.selection.return_value = []
+    with patch.object(app, "_show_info") as mock_info:
+        app._restore_quarantined()
+        mock_info.assert_called_once()
+
+    # 2. Selected item, user confirms YES -> restores successfully
+    app.tree_q.selection.return_value = ["item_1"]
+    app.tree_q.item.return_value = {
+        "values": ("id123", "EICAR", "/home/user/eicar.com", "2026-10-18", "68 B")
+    }
+    mock_qm.restore_item.return_value = (True, "Restored to /home/user/eicar.com")
+
+    with patch.object(app, "_ask_yes_no", return_value=True), patch.object(
+        app, "_show_info"
+    ) as mock_info:
+        app._restore_quarantined()
+        mock_qm.restore_item.assert_called_once_with("id123")
+        mock_info.assert_called_once()
+
+    # 3. Selected item, user cancels (NO) -> does not restore
+    mock_qm.restore_item.reset_mock()
+    with patch.object(app, "_ask_yes_no", return_value=False):
+        app._restore_quarantined()
+        mock_qm.restore_item.assert_not_called()
+
+
+def test_tkinter_app_quarantine_delete_actions():
+    """Validates delete quarantined file handling user confirmation Yes and No."""
+    mock_root = MagicMock()
+    app, _, mock_qm, _, _ = _create_test_app(mock_root)
+
+    # 1. No item selected
+    app.tree_q.selection.return_value = []
+    with patch.object(app, "_show_info") as mock_info:
+        app._delete_quarantined()
+        mock_info.assert_called_once()
+
+    # 2. Selected item, user confirms YES -> deletes permanently
+    app.tree_q.selection.return_value = ["item_1"]
+    app.tree_q.item.return_value = {
+        "values": ("id999", "Rootkit", "/home/user/bad.ko", "2026-10-18", "12 KB")
+    }
+    mock_qm.delete_item.return_value = (True, "Deleted bad.ko")
+
+    with patch.object(app, "_ask_yes_no", return_value=True), patch.object(
+        app, "_show_info"
+    ) as mock_info:
+        app._delete_quarantined()
+        mock_qm.delete_item.assert_called_once_with("id999")
+        mock_info.assert_called_once()
+
+    # 3. Selected item, user cancels (NO) -> does not delete
+    mock_qm.delete_item.reset_mock()
+    with patch.object(app, "_ask_yes_no", return_value=False):
+        app._delete_quarantined()
+        mock_qm.delete_item.assert_not_called()
+
+
+def test_tkinter_app_custom_scan_folder_browser():
+    """Validates custom scan with folder chooser selection vs cancellation."""
+    mock_root = MagicMock()
+    app, _, _, _, _ = _create_test_app(mock_root)
+
+    with patch.object(tk_app_mod, "filedialog") as mock_fd, patch.object(
+        app, "_launch_scan"
+    ) as mock_launch:
+        # User selects folder
+        mock_fd.askdirectory.return_value = "/home/user/Documents"
+        app._browse_and_scan()
+        mock_launch.assert_called_once()
+
+        # User cancels folder chooser
+        mock_launch.reset_mock()
+        mock_fd.askdirectory.return_value = ""
+        app._browse_and_scan()
+        mock_launch.assert_not_called()
+
+
+def test_tkinter_app_on_close_during_scan():
+    """Validates window close confirmation during active scan."""
+    mock_root = MagicMock()
+    app, _, _, mock_scanner, _ = _create_test_app(mock_root)
+    app.is_scanning = True
+
+    # User says NO -> do not exit, keep scanning
+    with patch.object(app, "_ask_yes_no", return_value=False):
+        app._on_close()
+        mock_root.destroy.assert_not_called()
+        mock_scanner.stop.assert_not_called()
+
+    # User says YES -> stop scan and destroy window
+    with patch.object(app, "_ask_yes_no", return_value=True):
+        app._on_close()
+        mock_scanner.stop.assert_called_once()
+        mock_root.destroy.assert_called_once()
+
+
+def test_tkinter_app_signature_update_events():
+    """Validates maintenance log streaming and update completion in event queue."""
+    mock_root = MagicMock()
+    app = tk_app_mod.TkinterApp.__new__(tk_app_mod.TkinterApp)
+    app.root = mock_root
+    app.event_queue = queue.Queue()
+    app.is_updating = True
+    app.btn_update_sig = MagicMock()
+    app._log_maint = MagicMock()
+    app._show_info = MagicMock()
+
+    app.event_queue.put(("maint_log", "Downloading daily.cvd..."))
+    app.event_queue.put(("update_done", "Virus definitions up to date!"))
+
+    app._poll_event_queue()
+
+    app._log_maint.assert_any_call("Downloading daily.cvd...")
+    app._log_maint.assert_any_call("Virus definitions up to date!")
+    assert app.is_updating is False
+    app.btn_update_sig.config.assert_called_with(state=tk_app_mod.tk.NORMAL)
+    app._show_info.assert_called_once_with(
+        "Signatures Updated", "Virus definitions up to date!"
+    )
+
+
+def test_tkinter_app_scan_cancelled_report():
+    """Validates GUI cleanup and warning log when a scan report indicates cancellation."""
+    mock_root = MagicMock()
+    app = tk_app_mod.TkinterApp.__new__(tk_app_mod.TkinterApp)
+    app.root = mock_root
+    app.event_queue = queue.Queue()
+    app.is_scanning = True
+    app.progressbar = MagicMock()
+    app.btn_quick = MagicMock()
+    app.btn_full = MagicMock()
+    app.btn_custom = MagicMock()
+    app.btn_stop = MagicMock()
+    app.lbl_progress = MagicMock()
+    app._log_msg = MagicMock()
+    app._show_info = MagicMock()
+
+    cancelled_report = ScanReport("Quick Scan")
+    cancelled_report.scanned_files = 42
+    cancelled_report.threats_found = 0
+    cancelled_report.cancelled = True
+    app.event_queue.put(("scan_done", cancelled_report))
+
+
+    app._poll_event_queue()
+
+    assert app.is_scanning is False
+    app.progressbar.stop.assert_called_once()
+    app.lbl_progress.config.assert_called_with(text="Scan cancelled.")
+    app._show_info.assert_called_once()
+
+
+def test_tkinter_app_double_launch_protection():
+    """Validates that triggering launch while already scanning safely no-ops."""
+    app = tk_app_mod.TkinterApp.__new__(tk_app_mod.TkinterApp)
+    app.is_scanning = True
+    app.scanner = MagicMock()
+
+    # Attempting to launch another scan must return immediately without starting a thread
+    app._launch_scan(["/test"], "Quick Scan")
+    app.scanner.scan.assert_not_called()
+
+
+def test_tkinter_app_double_update_protection():
+    """Validates that triggering update while already updating safely no-ops."""
+    app = tk_app_mod.TkinterApp.__new__(tk_app_mod.TkinterApp)
+    app.is_updating = True
+    app.updater = MagicMock()
+
+    app._start_signature_update()
+    app.updater.run_update.assert_not_called()
+
+
+
 if __name__ == "__main__":
     print("\n=== Running test_tk_app.py test suite ===")
     test_run_tkinter_app_when_tk_none()
@@ -154,8 +368,29 @@ if __name__ == "__main__":
     print("  [PASS] test_run_tkinter_app_on_tcl_error")
     test_tkinter_app_event_queue_processing()
     print("  [PASS] test_tkinter_app_event_queue_processing")
+    test_tkinter_app_event_queue_clean_scan()
+    print("  [PASS] test_tkinter_app_event_queue_clean_scan")
+    test_tkinter_app_unknown_event_in_queue()
+    print("  [PASS] test_tkinter_app_unknown_event_in_queue")
     test_tkinter_app_stop_scan()
     print("  [PASS] test_tkinter_app_stop_scan")
     test_tkinter_app_quarantine_refresh()
     print("  [PASS] test_tkinter_app_quarantine_refresh")
-    print("All Tkinter Lite tests passed successfully!\n")
+    test_tkinter_app_quarantine_restore_actions()
+    print("  [PASS] test_tkinter_app_quarantine_restore_actions")
+    test_tkinter_app_quarantine_delete_actions()
+    print("  [PASS] test_tkinter_app_quarantine_delete_actions")
+    test_tkinter_app_custom_scan_folder_browser()
+    print("  [PASS] test_tkinter_app_custom_scan_folder_browser")
+    test_tkinter_app_on_close_during_scan()
+    print("  [PASS] test_tkinter_app_on_close_during_scan")
+    test_tkinter_app_signature_update_events()
+    print("  [PASS] test_tkinter_app_signature_update_events")
+    test_tkinter_app_scan_cancelled_report()
+    print("  [PASS] test_tkinter_app_scan_cancelled_report")
+    test_tkinter_app_double_launch_protection()
+    print("  [PASS] test_tkinter_app_double_launch_protection")
+    test_tkinter_app_double_update_protection()
+    print("  [PASS] test_tkinter_app_double_update_protection")
+    print("All 15 Tkinter Lite tests passed successfully!\n")
+

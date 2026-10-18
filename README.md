@@ -1,11 +1,12 @@
 # pyEGClamUI
 
-[![Version: 3.1.1](https://img.shields.io/badge/Version-3.1.1-00C853.svg)](docs/VERSIONING.md)
+[![Version: 3.2.0](https://img.shields.io/badge/Version-3.2.0-00C853.svg)](docs/VERSIONING.md)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python: >=3.9](https://img.shields.io/badge/Python->=3.9-3776AB.svg?logo=python&logoColor=white)](https://python.org)
 [![Platform: Windows | Linux | macOS](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/EG1DOTIN/pyEGClamUI)
 
-**Current Stable Release**: `v3.1.1` — An open-source, cross-platform desktop GUI for ClamAV engine. Built with Python and PySide6 (Qt).
+**Current Stable Release**: `v3.2.0` — An open-source, cross-platform desktop GUI for ClamAV engine. Built with Python and PySide6 (Qt).
+
 
 ---
 
@@ -18,6 +19,9 @@
 ## Features
 
 * **Cross-Platform**: Runs natively on **Windows 10/11**, **Linux**, and **macOS**.
+* **Dual-Tier Adaptive GUI Architecture**:
+  * ⚡ **Tier 1 (Modern Suite)**: Powered by PySide6 / Qt6 for 64-bit machines with $\ge$ 4.0 GB physical RAM, featuring custom dark themes and rich animations.
+  * 🛡️ **Tier 2 (pyEGClamUI Lite)**: Powered by Python's standard library `tkinter.ttk` for legacy 32-bit systems (`i386`/`i686`/`armhf`), lightweight distributions (**antiX**, **Puppy Linux**, **Debian 32-bit**), and resource-constrained environments ($<$ 4.0 GB RAM).
 * **Engine Auto-Discovery**: Automatically discovers `clamscan`, `clamd`, and `freshclam` across system PATH, standard directories, and Homebrew paths via [`ClamEngineDetector`](src/pyegclamui/core/detector.py).
 * **ClamAV Daemon Integration**: High-performance Unix domain socket (`/var/run/clamav/clamd.ctl`, `/opt/homebrew/...`) and TCP socket (`127.0.0.1:3310`) communication with `INSTREAM` chunk framing support via [`ClamDaemonClient`](src/pyegclamui/core/daemon.py).
 * **Multiple Scan Modes**:
@@ -25,7 +29,7 @@
   * **Full System Scan**: Thorough scan across all accessible local storage drives and system partitions.
   * **Custom Scan**: Target specific files, folders, or external drives of your choice.
   * **Memory Scan**: Scans active processes and loaded executable modules for resident threats.
-* **Live Progress Tracking**: Real-time file counters, active scanning path display, elapsed time, and threat notifications in [`ScanDialog`](src/pyegclamui/gui/scan_dialog.py).
+* **Live Progress Tracking**: Real-time file counters, active scanning path display, elapsed time, and threat notifications in [`ScanDialog`](src/pyegclamui/gui/scan_dialog.py) and pyEGClamUI Lite dashboard.
 * **Isolated Quarantine Vault**: Quarantined threats are given unique IDs, hashed with SHA-256, isolated safely with non-executable `.quarantine` extensions, and support one-click restoration via [`QuarantineManager`](src/pyegclamui/core/quarantine.py).
 * **Debounced Real-Time Guard**: Monitors Downloads and Desktop using `watchdog` with a debounce worker queue to avoid locking files being downloaded or written via [`RealTimeGuard`](src/pyegclamui/core/monitor.py).
 * **Desktop & Menu Integration**: XDG desktop entry and hicolor icon integration for Linux application menus via [`LinuxDesktopManager`](src/pyegclamui/core/desktop_integration.py), macOS Menu Bar status item, and Windows System Tray daemon via [`SystemTrayManager`](src/pyegclamui/gui/tray.py).
@@ -43,14 +47,17 @@ Detailed architectural, technical, and operational documentation is available in
 | Guide | Description |
 | :--- | :--- |
 | **[Documentation Index](docs/README.md)** | Overview map and full repository structure |
+| **[Adaptive GUI Plan](docs/ADAPTIVE_GUI_DESIGN_PLAN.md)** | Dual-tier hardware routing, Tkinter Lite dashboard, and low-spec support |
 | **[System Architecture](docs/ARCHITECTURE.md)** | Decoupled layers, Qt signal/slot concurrency, and threading model |
-| **[Core Engines](docs/CORE_ENGINES.md)** | In-depth logic for Scanner, Detector, Daemon client, and Quarantine |
-| **[Cross-Platform Matrix](docs/CROSS_PLATFORM.md)** | Directory mapping, socket discovery, and platform specifics (Windows, Linux, macOS) |
+| **[Core Engines](docs/CORE_ENGINES.md)** | In-depth logic for Scanner, Detector, Daemon client, Capability Inspector, and Quarantine |
+| **[Cross-Platform Matrix](docs/CROSS_PLATFORM.md)** | Directory mapping, socket discovery, 32-bit hardware support, and OS specifics |
+| **[GUI Design System](docs/GUI_DESIGN_SYSTEM.md)** | PySide6 modern UI architecture, dark palette tokens, and Tkinter Lite design |
 | **[Configuration & Schemas](docs/CONFIG_SCHEMA.md)** | `config.json` schema, quarantine manifests, and local diagnostic exports |
-| **[CLI Reference](docs/CLI_REFERENCE.md)** | Complete CLI syntax for `pyegclamui`, `egclam`, `pyegclamui-scan`, and `pyegclamui-setup` |
+| **[CLI Reference](docs/CLI_REFERENCE.md)** | Complete CLI syntax for `pyegclamui`, `egclam`, `pyegclamui-lite`, `pyegclamui-scan`, and `pyegclamui-setup` |
 | **[Security & Privacy](docs/SECURITY_MODEL.md)** | Zero-telemetry policy, subprocess argument safety, and FOSS compliance |
 | **[Application Versioning](docs/VERSIONING.md)** | SemVer policy, single source of truth (SSOT), and release bumping workflow |
 | **[Universal Setup Suite](setup/README.md)** | One-liner installers, global updater (`--update`), and desktop shortcut engine |
+
 
 ---
 
@@ -61,7 +68,8 @@ pyEGClamUI includes an automated, cross-platform bootstrap setup suite ([`setup/
 ### 🪟 Windows Setup Options
 
 #### Option A: Standalone Setup Wizard (Recommended for End Users)
-Download the latest `pyEGClamUI-v3.1.1-Windows-Setup.exe` installer from [GitHub Releases](https://github.com/EG1DOTIN/pyEGClamUI/releases):
+Download the latest `pyEGClamUI-v3.2.0-Windows-Setup.exe` installer from [GitHub Releases](https://github.com/EG1DOTIN/pyEGClamUI/releases):
+
 * 🛡️ **Zero False Positives**: Uses official signed Python 3.12 embedded runtime.
 * ⚡ **Ultra-Fast Scans**: Automatically configures and launches ClamD resident daemon service (15 ms latency).
 * 🖥️ **Full Desktop Integration**: Configures Desktop/Start Menu shortcuts and clean Windows uninstaller.
@@ -120,10 +128,20 @@ pip install -e .
 
 ### Launch GUI
 ```bash
+# Automatic Tier Detection (Qt6 for modern systems, Tkinter Lite for 32-bit / <4GB RAM):
 pyegclamui
-# or use the short alias:
+# or short alias:
 egclam
+
+# Explicitly launch pyEGClamUI Lite (Tkinter):
+pyegclamui --lite
+# or standalone command:
+pyegclamui-lite
+
+# Explicitly force Qt6 GUI:
+pyegclamui --qt
 ```
+
 
 ### Run from Command Line
 ```bash

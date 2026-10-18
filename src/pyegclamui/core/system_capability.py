@@ -15,9 +15,13 @@ from typing import Any, Literal
 
 GuiTier = Literal["pyside6", "tkinter"]
 
-# Deterministic Threshold Limits
-MIN_RAM_BYTES_TIER1: int = 4 * 1024 * 1024 * 1024  # 4.0 GB
-LEGACY_ARCHS: set[str] = {"i386", "i686", "i486", "i586", "x86", "armv7l", "armv6l"}
+# Deterministic Threshold Limits:
+# Physical RAM >= 4.0 GB qualifies for Tier 1. We calibrate the byte threshold to 3.75 GB
+# to account for BIOS and hardware integrated GPU (VRAM) reservations common on 4.0 GB machines.
+MIN_RAM_BYTES_TIER1: int = int(3.75 * 1024 * 1024 * 1024)
+LEGACY_ARCHS: set[str] = {
+    "i386", "i486", "i586", "i686", "x86", "armv6", "armv6l", "armv7", "armv7l", "armv7a", "armv7b", "armhf"
+}
 
 
 def is_64bit_architecture() -> bool:
@@ -25,9 +29,13 @@ def is_64bit_architecture() -> bool:
     Returns True if the runtime environment and CPU architecture are strictly 64-bit.
     Evaluates both pointer address space (sys.maxsize) and CPU machine string.
     """
-    arch = platform.machine().lower()
+    arch = platform.machine().lower().strip()
     is_pointer_64 = sys.maxsize > (2**32)
-    return is_pointer_64 and (arch not in LEGACY_ARCHS)
+    is_legacy = (
+        arch in LEGACY_ARCHS
+        or any(legacy in arch for legacy in ("i386", "i486", "i586", "i686", "armv7", "armv6"))
+    )
+    return is_pointer_64 and not is_legacy
 
 
 def get_total_ram_bytes() -> int:
