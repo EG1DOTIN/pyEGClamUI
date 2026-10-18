@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "An open-source, cross-platform desktop GUI for ClamAV"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "GPL-3.0-or-later" }
+license = "GPL-3.0-or-later"
 authors = [
     { name = "EG1 ( eg1.in )" }
 ]
@@ -28,26 +28,30 @@ classifiers = [
     "Environment :: Win32 (MS Windows)",
     "Environment :: MacOS X",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
     "Topic :: System :: Systems Administration",
 ]
 
 dependencies = [
-    "PySide6>=6.5.0",
+    "PySide6>=6.2.0; platform_machine != 'i686' and platform_machine != 'i386' and platform_machine != 'x86' and platform_machine != 'armv7l'",
     "clamd>=1.0.2",
     "psutil>=5.9.0",
     "watchdog>=3.0.0",
     "send2trash>=1.8.0",
+    "pywin32>=305; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
+gui = [
+    "PySide6>=6.2.0",
+]
 dev = [
     "pytest>=7.0.0",
 ]

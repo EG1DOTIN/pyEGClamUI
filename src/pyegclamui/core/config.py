@@ -16,6 +16,15 @@ class AppPaths:
     """Manages cross-platform standard directories for pyEGClamUI."""
 
     @staticmethod
+    def _safe_mkdir(path: Path) -> Path:
+        """Safely attempts to create directories without crashing on read-only environments."""
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        return path
+
+    @staticmethod
     def get_config_dir() -> Path:
         """Returns standard user configuration directory."""
         if sys.platform == "win32":
@@ -26,8 +35,7 @@ class AppPaths:
         else:
             base = os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))
             path = Path(base) / "pyegclamui"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return AppPaths._safe_mkdir(path)
 
     @staticmethod
     def get_data_dir() -> Path:
@@ -40,8 +48,7 @@ class AppPaths:
         else:
             base = os.getenv("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
             path = Path(base) / "pyegclamui"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return AppPaths._safe_mkdir(path)
 
     @staticmethod
     def get_database_dir() -> Path:
@@ -52,15 +59,13 @@ class AppPaths:
             if shared_db.is_dir() and any(shared_db.glob("*.c*d")):
                 return shared_db
         user_db = AppPaths.get_data_dir() / "database"
-        user_db.mkdir(parents=True, exist_ok=True)
-        return user_db
+        return AppPaths._safe_mkdir(user_db)
 
     @staticmethod
     def get_quarantine_dir() -> Path:
         """Returns directory where quarantined threats are safely stored."""
         path = AppPaths.get_data_dir() / "quarantine"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return AppPaths._safe_mkdir(path)
 
     @staticmethod
     def get_logs_dir() -> Path:
@@ -72,8 +77,7 @@ class AppPaths:
         else:
             base = os.getenv("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
             path = Path(base) / "pyegclamui" / "logs"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return AppPaths._safe_mkdir(path)
 
     @staticmethod
     def get_package_root() -> Path:

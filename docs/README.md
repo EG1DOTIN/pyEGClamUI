@@ -78,6 +78,7 @@ graph TD
 | **[Dual-Track Logging](LOGGING.md)** | Segregated diagnostics and audit trails | 2 MB size-capped timestamped rotation (`YYYY-MM-DD-HH-MM-[type].log`), `pyegclamui` error stream vs `pyegclamui.reports` audit stream, global `sys.excepthook` crash recovery modal, native explorer integration |
 | **[Telemetry Logic & Privacy](TELEMETRY_LOGIC.md)** | Transparent opt-in diagnostics | 100% opt-in policy (off by default), zero hidden trackers, random Guest ID generator, granular consent checkboxes (OS, Engine, Stats), zero hostname/IP collection, Firestore REST JSON mapping, live data preview modal, bug reporter with screenshots |
 | **[GUI Design System](GUI_DESIGN_SYSTEM.md)** | PySide6 interface and aesthetics | Modern dark palette (Zinc/Slate/Emerald), reusable widgets (`ModernCard`, `Badge`, `ToggleSwitch`, `LogViewer`), high-DPI scaling, Windows DWM dark titlebar, 3-tier reactive status matrix, 5-tab dashboard breakdown |
+| **[Adaptive GUI Design Plan](ADAPTIVE_GUI_DESIGN_PLAN.md)** | Deterministic dual-tier GUI specification | Hardware boundary limits, Qt6 (64-bit/RAM >= 4GB) vs Tkinter Lite (32-bit/Low-RAM), decoupled core integration, progressive enhancement roadmap |
 
 ---
 

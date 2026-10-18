@@ -42,7 +42,7 @@ To eliminate version divergence and eliminate manual multi-file edits, pyEGClamU
 
 ```mermaid
 flowchart TD
-    Init["src/pyegclamui/__init__.py<br/>(__version__ = '3.1.0')<br/>🟢 CENTRIC SINGLE SOURCE OF TRUTH"]
+    Init["src/pyegclamui/__init__.py<br/>(__version__ = '3.1.1')<br/>🟢 CENTRIC SINGLE SOURCE OF TRUTH"]
 
     Init --> Pyproj["pyproject.toml<br/>(PEP 621 dynamic = ['version'])<br/>setuptools.dynamic attr"]
     Init --> GUI["MainWindow & About Tab<br/>(from pyegclamui import __version__)"]
@@ -93,7 +93,7 @@ flowchart TD
 1. **Step 1 — Update the Centric Version**:
    Edit [`src/pyegclamui/__init__.py`](../src/pyegclamui/__init__.py):
    ```python
-   __version__ = "3.1.0"
+   __version__ = "3.1.1"
    ```
 
 2. **Step 2 — Execute Fast Automated Test Suite (< 15 seconds)**:
@@ -104,16 +104,16 @@ flowchart TD
 3. **Step 3 — Commit and Tag**:
    ```bash
    git add src/pyegclamui/__init__.py
-   git commit -m "chore(release): bump version to 3.1.0"
-   git tag -a v3.1.0 -m "Release v3.1.0"
+   git commit -m "chore(release): bump version to 3.1.1"
+   git tag -a v3.1.1 -m "Release v3.1.1"
    ```
 
 4. **Step 4 — Push to GitHub**:
    ```bash
    git push origin main
-   git push origin v3.1.0
+   git push origin v3.1.1
    ```
-   GitHub Actions will automatically build `pyEGClamUI-v3.1.0-Windows-Setup.exe`, `pyegclamui-v3.1.0-linux-x86_64.tar.gz`, and `pyegclamui-v3.1.0-macos.zip`, publishing them directly to the release page.
+   GitHub Actions will automatically build `pyEGClamUI-v3.1.1-Windows-Setup.exe`, `pyegclamui-v3.1.1-linux-x86_64.tar.gz`, and `pyegclamui-v3.1.1-macos.zip`, publishing them directly to the release page.
 
 ---
 

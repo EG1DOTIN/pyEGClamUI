@@ -7,7 +7,10 @@ import sys
 import subprocess
 import tempfile
 from pathlib import Path
-import pytest
+try:
+    import pytest
+except ImportError:
+    pytest = None
 
 # Ensure project root is in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -80,6 +83,29 @@ def test_venv_manager_paths():
         assert venv_mgr.exists() is True
 
 
+def test_venv_manager_cross_platform_corruption():
+    """Validates that foreign OS venvs (e.g. Windows Scripts on Linux) are flagged as corrupted."""
+    logger = SetupLogger()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_root = Path(tmpdir)
+        venv_mgr = VenvManager(fake_root, logger)
+
+        if sys.platform != "win32":
+            # Simulate Windows venv copied to Linux
+            scripts_dir = fake_root / ".venv" / "Scripts"
+            scripts_dir.mkdir(parents=True)
+            (scripts_dir / "python.exe").touch()
+            assert venv_mgr.is_cross_platform_corrupted() is True
+            assert venv_mgr.exists() is False
+        else:
+            # Simulate Linux venv copied to Windows
+            bin_dir = fake_root / ".venv" / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").touch()
+            assert venv_mgr.is_cross_platform_corrupted() is True
+            assert venv_mgr.exists() is False
+
+
 def test_shortcut_manager_linux_generation():
     logger = SetupLogger()
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -94,6 +120,7 @@ def test_shortcut_manager_linux_generation():
         orig_home = Path.home
         try:
             Path.home = staticmethod(lambda: fake_root)
+            (fake_root / "Desktop").mkdir(parents=True, exist_ok=True)
             success = shortcut_mgr._create_linux_shortcuts()
             assert success is True
 
@@ -102,6 +129,9 @@ def test_shortcut_manager_linux_generation():
             content = desktop_file.read_text(encoding="utf-8")
             assert "Name=pyEGClamUI" in content
             assert "Exec=" in content
+
+            user_desktop = fake_root / "Desktop" / "pyegclamui.desktop"
+            assert user_desktop.is_file()
         finally:
             Path.home = orig_home
 
@@ -128,19 +158,48 @@ def test_shortcut_manager_macos_generation():
             Path.home = orig_home
 
 
-def test_global_updater_mock(monkeypatch):
-    logger = SetupLogger()
-    detector = SystemDetector(PROJECT_ROOT)
-    venv_mgr = VenvManager(PROJECT_ROOT, logger)
-    clam_prov = ClamAVProvisioner(detector, logger)
-    updater = GlobalUpdater(PROJECT_ROOT, venv_mgr, clam_prov, logger)
+class SimpleMonkeyPatch:
+    def __init__(self):
+        self._undo = []
 
-    # Mock subprocess.run and clam_prov methods
-    monkeypatch.setattr(clam_prov, "update_signatures", lambda: True)
-    monkeypatch.setattr(venv_mgr, "install_dependencies", lambda: True)
+    def setattr(self, target, name, value=None):
+        if value is None and isinstance(target, str):
+            value = name
+            import importlib
+            mod_name, attr_name = target.rsplit(".", 1)
+            target = importlib.import_module(mod_name)
+            name = attr_name
+        orig = getattr(target, name)
+        self._undo.append((target, name, orig))
+        setattr(target, name, value)
 
-    success = updater.execute_update()
-    assert success is True
+    def undo(self):
+        for target, name, orig in reversed(self._undo):
+            setattr(target, name, orig)
+        self._undo.clear()
+
+
+def test_global_updater_mock(monkeypatch=None):
+    if monkeypatch is None:
+        mp = SimpleMonkeyPatch()
+    else:
+        mp = monkeypatch
+    try:
+        logger = SetupLogger()
+        detector = SystemDetector(PROJECT_ROOT)
+        venv_mgr = VenvManager(PROJECT_ROOT, logger)
+        clam_prov = ClamAVProvisioner(detector, logger)
+        updater = GlobalUpdater(PROJECT_ROOT, venv_mgr, clam_prov, logger)
+
+        # Mock subprocess.run and clam_prov methods
+        mp.setattr(clam_prov, "update_signatures", lambda: True)
+        mp.setattr(venv_mgr, "install_dependencies", lambda: True)
+
+        success = updater.execute_update()
+        assert success is True
+    finally:
+        if monkeypatch is None:
+            mp.undo()
 
 
 def test_setup_cli_check_subprocess():
@@ -164,24 +223,68 @@ def test_setup_cli_help_subprocess():
     assert "--purge-all" in res.stdout
 
 
-def test_prompt_user_behavior(monkeypatch):
+def test_root_setup_cli_forwarding():
+    """Validates that running 'python setup.py --check' from root forwards correctly."""
+    cmd = [sys.executable, str(PROJECT_ROOT / "setup.py"), "--check"]
+    res = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    assert res.returncode == 0
+    assert "System Diagnostic & Compatibility Audit" in res.stdout
+
+
+def test_root_setup_cli_help_forwarding():
+    """Validates that running 'python setup.py --help' forwards correctly."""
+    cmd = [sys.executable, str(PROJECT_ROOT / "setup.py"), "--help"]
+    res = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    assert res.returncode == 0
+    assert "pyEGClamUI - Unified Cross-Platform Setup" in res.stdout
+    assert "--install" in res.stdout
+
+
+def test_root_setup_module_reexport():
+    """Validates that importing setup directly from project root re-exports public installer symbols."""
+    code = "import setup; assert hasattr(setup, 'SystemDetector'); assert hasattr(setup, 'VenvManager'); print('OK')"
+    cmd = [sys.executable, "-c", code]
+    res = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    assert res.returncode == 0
+    assert "OK" in res.stdout
+
+
+def test_root_setup_editable_wheel_forwarding():
+    """Validates that setuptools packaging commands (e.g. editable_wheel) are handled by setuptools, not installer."""
+    cmd = [sys.executable, str(PROJECT_ROOT / "setup.py"), "editable_wheel", "--help"]
+    res = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    assert res.returncode == 0
+    assert "editable_wheel" in res.stdout
+    assert "unrecognized arguments" not in res.stderr
+
+
+def test_prompt_user_behavior(monkeypatch=None):
     """Tests prompt_user under purge_all, interactive yes/no, and non-interactive defaults."""
-    # purge_all is always True
-    assert prompt_user("Delete?", default=False, purge_all=True) is True
+    if monkeypatch is None:
+        mp = SimpleMonkeyPatch()
+    else:
+        mp = monkeypatch
 
-    # Monkeypatch interactive input 'y'
-    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda: "y")
-    assert prompt_user("Delete?", default=False, purge_all=False) is True
+    try:
+        # purge_all is always True
+        assert prompt_user("Delete?", default=False, purge_all=True) is True
 
-    # Monkeypatch interactive input 'n'
-    monkeypatch.setattr("builtins.input", lambda: "n")
-    assert prompt_user("Delete?", default=False, purge_all=False) is False
+        # Monkeypatch interactive input 'y'
+        mp.setattr(sys.stdin, "isatty", lambda: True)
+        mp.setattr("builtins.input", lambda: "y")
+        assert prompt_user("Delete?", default=False, purge_all=False) is True
 
-    # Non-interactive fallback
-    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
-    assert prompt_user("Delete?", default=False, purge_all=False) is False
-    assert prompt_user("Delete?", default=True, purge_all=False) is True
+        # Monkeypatch interactive input 'n'
+        mp.setattr("builtins.input", lambda: "n")
+        assert prompt_user("Delete?", default=False, purge_all=False) is False
+
+        # Non-interactive fallback
+        mp.setattr(sys.stdin, "isatty", lambda: False)
+        assert prompt_user("Delete?", default=False, purge_all=False) is False
+        assert prompt_user("Delete?", default=True, purge_all=False) is True
+    finally:
+        if monkeypatch is None:
+            mp.undo()
 
 
 def test_get_app_directories_structure():
@@ -202,40 +305,155 @@ def test_clean_autostart_execution():
     assert isinstance(result, bool)
 
 
-def test_run_uninstall_purge_all_mock(monkeypatch):
+def test_run_uninstall_purge_all_mock(monkeypatch=None):
     """Tests run_uninstall in purge_all mode with mocked dependencies."""
-    logger = SetupLogger()
-    with tempfile.TemporaryDirectory() as tmpdir:
-        fake_root = Path(tmpdir)
-        fake_venv = fake_root / ".venv"
-        fake_venv.mkdir()
-        fake_config = fake_root / "config"
-        fake_config.mkdir()
-        fake_data = fake_root / "data"
-        fake_data.mkdir()
+    if monkeypatch is None:
+        mp = SimpleMonkeyPatch()
+    else:
+        mp = monkeypatch
 
-        venv_mgr = VenvManager(fake_root, logger)
-        shortcut_mgr = ShortcutManager(fake_root, venv_mgr, logger)
-        detector = SystemDetector(fake_root)
-        clam_prov = ClamAVProvisioner(detector, logger)
+    try:
+        logger = SetupLogger()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_root = Path(tmpdir)
+            fake_venv = fake_root / ".venv"
+            fake_venv.mkdir()
+            fake_config = fake_root / "config"
+            fake_config.mkdir()
+            fake_data = fake_root / "data"
+            fake_data.mkdir()
 
-        # Mock removal methods and isolated app directories
-        shortcut_removed = []
-        monkeypatch.setattr(shortcut_mgr, "remove_shortcuts", lambda: shortcut_removed.append(True))
-        monkeypatch.setattr(clam_prov, "remove_daemon_service", lambda: True)
-        monkeypatch.setattr(detector, "is_daemon_running", lambda: False)
-        monkeypatch.setattr("setup.get_app_directories", lambda: {
-            "config": fake_config,
-            "data": fake_data,
-            "logs": fake_data / "logs",
-            "quarantine": fake_data / "quarantine",
-        })
+            venv_mgr = VenvManager(fake_root, logger)
+            shortcut_mgr = ShortcutManager(fake_root, venv_mgr, logger)
+            detector = SystemDetector(fake_root)
+            clam_prov = ClamAVProvisioner(detector, logger)
 
-        # Run uninstall with purge_all=True
-        run_uninstall(shortcut_mgr, venv_mgr, clam_prov, detector, logger, purge_all=True)
+            # Mock removal methods and isolated app directories
+            shortcut_removed = []
+            mp.setattr(shortcut_mgr, "remove_shortcuts", lambda: shortcut_removed.append(True))
+            mp.setattr(clam_prov, "remove_daemon_service", lambda: True)
+            mp.setattr(detector, "is_daemon_running", lambda: False)
+            mp.setattr("setup.get_app_directories", lambda: {
+                "config": fake_config,
+                "data": fake_data,
+                "logs": fake_data / "logs",
+                "quarantine": fake_data / "quarantine",
+            })
 
-        assert len(shortcut_removed) == 1
+            # Run uninstall with purge_all=True
+            run_uninstall(shortcut_mgr, venv_mgr, clam_prov, detector, logger, purge_all=True)
+
+            assert len(shortcut_removed) == 1
+    finally:
+        if monkeypatch is None:
+            mp.undo()
         assert not fake_venv.exists()
         assert not fake_config.exists()
         assert not fake_data.exists()
+
+
+def test_is_32bit_architecture_detection(monkeypatch=None):
+    """Validates 32-bit architecture detection for i686/i386/armv7."""
+    logger = SetupLogger()
+    venv_mgr = VenvManager(PROJECT_ROOT, logger)
+
+    import platform
+    orig_machine = platform.machine
+
+    try:
+        platform.machine = lambda: "i686"
+        assert venv_mgr._is_32bit_architecture() is True
+
+        platform.machine = lambda: "i386"
+        assert venv_mgr._is_32bit_architecture() is True
+
+        platform.machine = lambda: "armv7l"
+        assert venv_mgr._is_32bit_architecture() is True
+
+        platform.machine = lambda: "x86_64"
+        # On 64-bit systems sys.maxsize > 2**32
+        if sys.maxsize > 2**32:
+            assert venv_mgr._is_32bit_architecture() is False
+    finally:
+        platform.machine = orig_machine
+
+
+def test_verify_pyside6_runtime_when_missing():
+    """Validates that _verify_pyside6_runtime handles missing PySide6 cleanly without crashing."""
+    logs = []
+    logger = SetupLogger(callback=lambda msg, lvl: logs.append((msg, lvl)))
+    venv_mgr = VenvManager(PROJECT_ROOT, logger)
+
+    import setup as setup_mod
+    orig_run = setup_mod.run_hidden_process
+
+    class MockResult:
+        returncode = 1
+        stderr = "ModuleNotFoundError: No module named 'PySide6'"
+        stdout = ""
+
+    try:
+        setup_mod.run_hidden_process = lambda *args, **kwargs: MockResult()
+        fake_py = PROJECT_ROOT / ".venv" / "bin" / "python"
+        result = venv_mgr._verify_pyside6_runtime(fake_py)
+        assert result is True
+
+        # Check logged messages
+        log_texts = [msg for msg, lvl in logs]
+        assert any("Core Antivirus CLI tools installed" in m for m in log_texts)
+    finally:
+        setup_mod.run_hidden_process = orig_run
+
+
+def test_app_main_cli_fallback_when_pyside6_missing():
+    """Validates that pyegclamui.gui.app.main exits with helpful CLI instructions when PySide6 is unavailable."""
+    import pyegclamui.gui.app as app_mod
+    import builtins
+
+    orig_import = builtins.__import__
+
+    def mock_import(name, *args, **kwargs):
+        if name.startswith("PySide6"):
+            raise ImportError(f"No module named '{name}'")
+        return orig_import(name, *args, **kwargs)
+
+    try:
+        builtins.__import__ = mock_import
+        exit_code = app_mod.main()
+        assert exit_code == 1
+    finally:
+        builtins.__import__ = orig_import
+
+
+if __name__ == "__main__":
+    print("\n=== Running test_setup_script.py test suite ===")
+    test_funcs = [
+        test_system_detector_properties,
+        test_setup_logger_callback,
+        test_venv_manager_paths,
+        test_venv_manager_cross_platform_corruption,
+        test_shortcut_manager_linux_generation,
+        test_shortcut_manager_macos_generation,
+        test_global_updater_mock,
+        test_setup_cli_check_subprocess,
+        test_setup_cli_help_subprocess,
+        test_root_setup_cli_forwarding,
+        test_root_setup_cli_help_forwarding,
+        test_root_setup_module_reexport,
+        test_root_setup_editable_wheel_forwarding,
+        test_prompt_user_behavior,
+        test_get_app_directories_structure,
+        test_clean_autostart_execution,
+        test_run_uninstall_purge_all_mock,
+        test_is_32bit_architecture_detection,
+        test_verify_pyside6_runtime_when_missing,
+        test_app_main_cli_fallback_when_pyside6_missing,
+    ]
+    passed = 0
+    for fn in test_funcs:
+        fn()
+        passed += 1
+        print(f"  [PASS] {fn.__name__}")
+    print(f"\nAll {passed} setup and platform tests completed successfully!\n")
+
 

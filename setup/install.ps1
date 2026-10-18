@@ -47,10 +47,14 @@ Write-Host ""
 
 # 1. Determine Project Directory
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-if ($ScriptDir -and (Test-Path "$ScriptDir\setup.py")) {
+if ($ScriptDir -and (Test-Path "$ScriptDir\setup.py") -and (Test-Path "$ScriptDir\..\src\pyegclamui")) {
     $ProjectRoot = Split-Path -Parent $ScriptDir
-} elseif (Test-Path ".\setup\setup.py") {
+} elseif ($ScriptDir -and (Test-Path "$ScriptDir\..\setup.py") -and (Test-Path "$ScriptDir\..\..\src\pyegclamui")) {
+    $ProjectRoot = (Get-Item "$ScriptDir\..\..").FullName
+} elseif ((Test-Path ".\setup\setup.py") -and (Test-Path ".\src\pyegclamui")) {
     $ProjectRoot = (Get-Item ".").FullName
+} elseif ((Test-Path "..\setup\setup.py") -and (Test-Path "..\src\pyegclamui")) {
+    $ProjectRoot = (Get-Item "..").FullName
 } else {
     # If invoked directly via remote 1-liner in an empty folder, clone repo
     $TargetDir = "$HOME\pyEGClamUI"
@@ -72,6 +76,7 @@ Set-Location $ProjectRoot
 
 # 2. Check for Python 3.9+
 $PythonCmd = $null
+$PythonArgs = @()
 if (Get-Command python -ErrorAction SilentlyContinue) {
     $PyVer = python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
     if ($PyVer -and ([version]$PyVer -ge [version]"3.9")) {
@@ -82,7 +87,8 @@ if (Get-Command python -ErrorAction SilentlyContinue) {
 if (-not $PythonCmd -and (Get-Command py -ErrorAction SilentlyContinue)) {
     $PyVer = py -3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
     if ($PyVer -and ([version]$PyVer -ge [version]"3.9")) {
-        $PythonCmd = "py -3"
+        $PythonCmd = "py"
+        $PythonArgs = @("-3")
     }
 }
 
@@ -125,4 +131,8 @@ if ($Start) {
 }
 
 # Execute master installer
-& $PythonCmd $SetupScript @ArgsList
+if ($PythonArgs.Count -gt 0) {
+    & $PythonCmd @PythonArgs $SetupScript @ArgsList
+} else {
+    & $PythonCmd $SetupScript @ArgsList
+}

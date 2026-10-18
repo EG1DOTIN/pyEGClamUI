@@ -2,6 +2,18 @@
 setlocal
 cd /d "%~dp0"
 
+REM Check for embedded runtime pythonw.exe (installed / bundled distribution)
+if exist "python\pythonw.exe" (
+    start "" "python\pythonw.exe" main.py %*
+    exit /b 0
+)
+
+REM Check for embedded runtime python.exe
+if exist "python\python.exe" (
+    start "" "python\python.exe" main.py %*
+    exit /b 0
+)
+
 REM Check for virtual environment pythonw.exe
 if exist ".venv\Scripts\pythonw.exe" (
     start "" ".venv\Scripts\pythonw.exe" -m pyegclamui %*
@@ -34,7 +46,7 @@ if %ERRORLEVEL% equ 0 (
     exit /b %ERRORLEVEL%
 )
 
-echo [ERROR] Python 3.10+ is required but was not found in PATH.
+echo [ERROR] Python 3.9+ is required but was not found in PATH.
 echo Please install Python from https://www.python.org or via:
 echo     winget install Python.Python.3.12
 echo.

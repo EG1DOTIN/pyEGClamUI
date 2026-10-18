@@ -37,7 +37,11 @@ if (Test-Path $UserWinget) {
     }
 }
 
-# Execute silent installation of Cisco.ClamAV
+# Execute silent installation of Cisco.ClamAV with fallback to ClamAV.ClamAV
 & $WingetExe install --id Cisco.ClamAV -e --silent --accept-package-agreements --accept-source-agreements
 Start-Sleep -Seconds 2
+if (-not (Test-Path "C:\Program Files\ClamAV\clamscan.exe") -and -not (Get-Command clamscan.exe -ErrorAction SilentlyContinue)) {
+    & $WingetExe install ClamAV.ClamAV --silent --accept-package-agreements --accept-source-agreements
+    Start-Sleep -Seconds 2
+}
 Exit 0

@@ -1,7 +1,7 @@
 # pyEGClamUI - Core Dependencies
 # All libraries are open-source (LGPL/BSD/Apache/MIT), lightweight, secure, and privacy-focused.
 
-PySide6>=6.5.0          # LGPLv3: Official Qt Python GUI framework
+PySide6>=6.2.0; platform_machine != 'i686' and platform_machine != 'i386' and platform_machine != 'x86' and platform_machine != 'armv7l'  # LGPLv3: Official Qt Python GUI framework (64-bit platforms)
 clamd>=1.0.2            # GPLv3: Lightweight ClamAV socket client
 psutil>=5.9.0           # BSD-3-Clause: Cross-platform process and disk monitoring
 watchdog>=3.0.0         # Apache-2.0: Filesystem event monitoring

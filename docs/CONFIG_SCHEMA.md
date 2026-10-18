@@ -20,7 +20,7 @@ The application stores all user settings, scan limits, engine overrides, and pre
 
 ```json
 {
-  "version": "3.1.0",
+  "version": "3.1.1",
   "preferences": {
     "theme": "dark",
     "real_time_protection": false,
@@ -213,7 +213,7 @@ Telemetry is **100% Opt-In** (disabled by default) and requires explicit user co
 {
   "client_id": "Guest48291042",
   "app_name": "pyEGClamUI",
-  "app_version": "3.1.0",
+  "app_version": "3.1.1",
   "timestamp": "2026-09-22T12:00:00.000000+00:00",
   "display_name": "John Doe",
   "email": "john@example.com",

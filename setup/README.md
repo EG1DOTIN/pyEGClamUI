@@ -93,6 +93,9 @@ curl -sSL https://raw.githubusercontent.com/EG1DOTIN/pyEGClamUI/main/setup/insta
 bash setup/install.sh
 ```
 
+> [!TIP]
+> **Linux Automation**: The bootstrap script automatically detects your distribution package manager (`apt`, `dnf`, `pacman`), provisions `python3-venv` and build utilities if missing from your system Python, configures required Qt6 runtime libraries (`libgl1`, `libegl1`, `libxkbcommon-x11-0`, `libxcb-cursor0`), and repairs any cross-platform corrupted `.venv` files.
+
 ---
 
 ## 5. Lifecycle Management
