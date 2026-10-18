@@ -13,7 +13,7 @@ The dispatching decision is strictly governed by objective system properties: CP
 ```mermaid
 flowchart TD
     Boot(["pyEGClamUI Dispatcher<br/>main.py / CLI"]) --> Inspect["Query System Capabilities<br/>(Architecture, Bit-Width, Total RAM)"]
-    Inspect --> Threshold{"Meets System Limit?<br/>• 64-Bit OS & CPU<br/>• RAM >= 2.0 GB<br/>• Sys Pointer > 32-bit"}
+    Inspect --> Threshold{"Meets System Limit?<br/>• 64-Bit OS & CPU<br/>• RAM >= 4.0 GB<br/>• Sys Pointer > 32-bit"}
     
     Threshold -- "Yes (Meets / Exceeds Limit)" --> Tier1["Tier 1: Modern Qt6 / PySide6 GUI<br/>• Rich Dark Theme & High-DPI<br/>• System Tray & Real-Time Monitoring<br/>• Multi-Dialog Workflow"]
     Threshold -- "No (Below Limit / 32-Bit / Low-RAM)" --> Tier2["Tier 2: pyEGClamUI Lite (Tkinter)<br/>• Single-Window Unified Dashboard<br/>• ~15 MB RAM Footprint<br/>• Zero External pip Dependencies"]
@@ -28,15 +28,15 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | **CPU Architecture** | 🟢 `x86_64`, `amd64`, `arm64`, `aarch64` | 🟡 `i386`, `i686`, `x86`, `armv7l`, `armv6l` | `platform.machine().lower()` |
 | **Pointer Bit-Width** | 🟢 64-Bit (`sys.maxsize > 2**32`) | 🟡 32-Bit (`sys.maxsize <= 2**32`) | Standard Python `sys.maxsize` |
-| **Physical System RAM**| 🟢 **>= 2048 MB (2.0 GB)** | 🟡 **< 2048 MB (< 2.0 GB)** | `psutil.virtual_memory().total` |
+| **Physical System RAM**| 🟢 **>= 4096 MB (4.0 GB)** | 🟡 **< 4096 MB (< 4.0 GB)** | `psutil.virtual_memory().total` |
 | **Operating System** | 🟢 Windows 10/11, macOS 12+, Linux 64-bit | 🟡 Linux 32-bit (antiX, Debian i386), Win32 | `sys.platform` |
 | **GUI Framework** | 🟢 **PySide6 (Qt 6)** | 🟢 **Tkinter (`tkinter.ttk`)** | Deterministic selector |
 | **Idle RAM Footprint** | ~65 MB – 90 MB | **~12 MB – 18 MB** | Runtime measurement |
 | **External pip pkgs** | PySide6, clamd, psutil, watchdog, send2trash | clamd, psutil, send2trash (Tkinter built-in) | Package manifests |
 
 > [!NOTE]
-> **Why 2.0 GB RAM Is the Primary Boundary**:
-> The ClamAV virus signature database contains over 8.5 million signatures and requires **~1.2 GB to 1.5 GB of RAM** when loaded into memory. On machines with under 2 GB RAM, running a heavy Qt6 GUI alongside ClamAV risks memory exhaustion. Tkinter requires only ~15 MB, ensuring almost all system memory is dedicated to ClamAV.
+> **Why 4.0 GB RAM Is the Primary Boundary**:
+> The ClamAV virus signature database contains over 8.5 million signatures and requires **~1.2 GB to 1.5 GB of RAM** when loaded into memory. Combined with the underlying operating system and background desktop processes, machines with 4 GB or less RAM experience severe memory pressure and disk thrashing under a full Qt6 runtime. Setting the boundary at **4.0 GB** ensures machines with <= 4 GB RAM run the ultra-lightweight Tkinter Lite (~15 MB), leaving ample physical memory for the antivirus engine.
 
 ---
 
@@ -133,7 +133,7 @@ from typing import Literal
 GuiTier = Literal["pyside6", "tkinter"]
 
 # Architecture limits
-MIN_RAM_BYTES_TIER1 = 2 * 1024 * 1024 * 1024  # 2.0 GB
+MIN_RAM_BYTES_TIER1 = 4 * 1024 * 1024 * 1024  # 4.0 GB
 LEGACY_ARCHS = {"i386", "i686", "i486", "i586", "x86", "armv7l", "armv6l"}
 
 
@@ -157,7 +157,7 @@ def get_total_ram_bytes() -> int:
             pass
 
     # Fallback to generous assumption if undetectable
-    return 4 * 1024 * 1024 * 1024
+    return 8 * 1024 * 1024 * 1024
 
 
 def determine_gui_tier(user_override: str | None = None) -> GuiTier:
@@ -174,7 +174,7 @@ def determine_gui_tier(user_override: str | None = None) -> GuiTier:
     is_64bit = sys.maxsize > 2**32 and arch not in LEGACY_ARCHS
     total_ram = get_total_ram_bytes()
 
-    # Boundary check: must be 64-bit CPU/OS and have at least 2.0 GB RAM
+    # Boundary check: must be 64-bit CPU/OS and have at least 4.0 GB RAM
     if is_64bit and total_ram >= MIN_RAM_BYTES_TIER1:
         return "pyside6"
 
