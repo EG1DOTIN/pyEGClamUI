@@ -35,6 +35,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
     "Topic :: System :: Systems Administration",
 ]
@@ -45,6 +46,7 @@ dependencies = [
     "psutil>=5.9.0",
     "watchdog>=3.0.0",
     "send2trash>=1.8.0",
+    "pywin32>=305; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

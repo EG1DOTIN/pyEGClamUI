@@ -47,10 +47,14 @@ Write-Host ""
 
 # 1. Determine Project Directory
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-if ($ScriptDir -and (Test-Path "$ScriptDir\setup.py")) {
+if ($ScriptDir -and (Test-Path "$ScriptDir\setup.py") -and (Test-Path "$ScriptDir\..\src\pyegclamui")) {
     $ProjectRoot = Split-Path -Parent $ScriptDir
-} elseif (Test-Path ".\setup\setup.py") {
+} elseif ($ScriptDir -and (Test-Path "$ScriptDir\..\setup.py") -and (Test-Path "$ScriptDir\..\..\src\pyegclamui")) {
+    $ProjectRoot = (Get-Item "$ScriptDir\..\..").FullName
+} elseif ((Test-Path ".\setup\setup.py") -and (Test-Path ".\src\pyegclamui")) {
     $ProjectRoot = (Get-Item ".").FullName
+} elseif ((Test-Path "..\setup\setup.py") -and (Test-Path "..\src\pyegclamui")) {
+    $ProjectRoot = (Get-Item "..").FullName
 } else {
     # If invoked directly via remote 1-liner in an empty folder, clone repo
     $TargetDir = "$HOME\pyEGClamUI"

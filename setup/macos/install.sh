@@ -24,10 +24,14 @@ echo -e "${CYAN}${BOLD}======================================================${R
 
 # 1. Determine Project Directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/setup.py" ]; then
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/setup.py" ] && [ -d "$SCRIPT_DIR/../src/pyegclamui" ]; then
     PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-elif [ -f "./setup/setup.py" ]; then
+elif [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/../setup.py" ] && [ -d "$SCRIPT_DIR/../../src/pyegclamui" ]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." 2>/dev/null && pwd || echo "")"
+elif [ -f "./setup/setup.py" ] && [ -d "./src/pyegclamui" ]; then
     PROJECT_ROOT="$(pwd)"
+elif [ -f "../setup/setup.py" ] && [ -d "../src/pyegclamui" ]; then
+    PROJECT_ROOT="$(cd .. 2>/dev/null && pwd || echo "")"
 else
     TARGET_DIR="$HOME/pyEGClamUI"
     echo -e "${CYAN}[*] Bootstrapping pyEGClamUI in: $TARGET_DIR${RESET}"

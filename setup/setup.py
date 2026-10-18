@@ -251,6 +251,99 @@ class SystemDetector:
                 return pm
         return None
 
+    def ensure_linux_prerequisites(self, logger: SetupLogger) -> bool:
+        """Verifies and provisions Linux system packages needed for venv, C extensions, and Qt6."""
+        if not self.os_type.startswith("linux"):
+            return True
+
+        pm = self.detect_package_manager()
+        if not pm:
+            return True
+
+        can_passwordless = (
+            shutil.which("sudo") is not None
+            and run_hidden_process(["sudo", "-n", "true"], capture_output=True).returncode == 0
+        )
+
+        if pm == "apt":
+            dpkg_query = shutil.which("dpkg-query")
+            missing_pkgs: list[str] = []
+
+            # Only check for python3-venv if Python cannot already create venvs with pip
+            has_venv_ensurepip = False
+            try:
+                import venv, ensurepip
+                has_venv_ensurepip = True
+            except ImportError:
+                pass
+
+            if not has_venv_ensurepip:
+                missing_pkgs.append("python3-venv")
+
+            test_pkgs = [
+                "python3-dev",
+                "build-essential",
+                "libgl1",
+                "libegl1",
+                "libxkbcommon-x11-0",
+                "libdbus-1-3",
+                "libxcb-cursor0",
+            ]
+            if dpkg_query:
+                for pkg in test_pkgs:
+                    res = run_hidden_process([dpkg_query, "-W", "-f='${Status}'", pkg], capture_output=True)
+                    if "install ok installed" not in res.stdout:
+                        missing_pkgs.append(pkg)
+
+            if missing_pkgs:
+                logger.info(f"Missing Linux system packages for Python/Qt6: {', '.join(missing_pkgs)}")
+                if can_passwordless:
+                    logger.info("Attempting automated installation of missing system prerequisites (sudo)...")
+                    run_hidden_process(["sudo", "apt-get", "update"], capture_output=True)
+                    install_cmd = ["sudo", "apt-get", "install", "-y"] + missing_pkgs
+                    logger.exec(" ".join(install_cmd))
+                    res = run_hidden_process(install_cmd, capture_output=not logger.verbose)
+                    if res.returncode == 0:
+                        logger.ok("Linux system prerequisites installed successfully.")
+                        return True
+                    else:
+                        logger.warn("Automated installation via sudo failed. If dependencies fail, run:")
+                        logger.warn(f"  sudo apt-get install -y {' '.join(missing_pkgs)}")
+                elif shutil.which("sudo") and sys.stdin.isatty():
+                    logger.info("Attempting interactive installation of missing system prerequisites...")
+                    subprocess.run(["sudo", "apt-get", "update"])
+                    res = subprocess.run(["sudo", "apt-get", "install", "-y"] + missing_pkgs)
+                    if res.returncode == 0:
+                        logger.ok("Linux system prerequisites installed successfully.")
+                        return True
+                else:
+                    logger.warn("System packages needed. If dependency installation fails, please install:")
+                    logger.warn(f"  sudo apt-get install -y {' '.join(missing_pkgs)}")
+
+        elif pm == "dnf":
+            if can_passwordless:
+                logger.info("Verifying Fedora/RHEL development and Qt prerequisites...")
+                run_hidden_process(
+                    ["sudo", "dnf", "install", "-y", "python3-devel", "gcc", "mesa-libGL", "libxkbcommon-x11", "xcb-util-cursor"],
+                    capture_output=not logger.verbose,
+                )
+            else:
+                logger.info("Note: On Fedora/RHEL, if Qt6 libraries are needed, run:")
+                logger.info("  sudo dnf install -y python3-devel gcc mesa-libGL libxkbcommon-x11 xcb-util-cursor")
+
+        elif pm == "pacman":
+            if can_passwordless:
+                logger.info("Verifying Arch Linux development and Qt prerequisites...")
+                run_hidden_process(
+                    ["sudo", "pacman", "-S", "--noconfirm", "--needed", "base-devel", "libxkbcommon-x11", "xcb-util-cursor"],
+                    capture_output=not logger.verbose,
+                )
+            else:
+                logger.info("Note: On Arch Linux, if Qt6 libraries are needed, run:")
+                logger.info("  sudo pacman -S --noconfirm --needed base-devel libxkbcommon-x11 xcb-util-cursor")
+
+        return True
+
 
 # ------------------------------------------------------------------------------
 # 3. Virtual Environment & Dependency Manager
@@ -258,9 +351,10 @@ class SystemDetector:
 class VenvManager:
     """Manages isolated .venv creation, pip upgrades, and package installation."""
 
-    def __init__(self, project_root: Path, logger: SetupLogger):
+    def __init__(self, project_root: Path, logger: SetupLogger, detector: Optional[SystemDetector] = None):
         self.project_root = project_root
         self.logger = logger
+        self.detector = detector
         self.venv_dir = project_root / ".venv"
 
     def get_python_exe(self) -> Path:
@@ -277,29 +371,104 @@ class VenvManager:
                 return pw
         return self.get_python_exe()
 
+    def is_cross_platform_corrupted(self) -> bool:
+        """Checks if .venv exists but was built on a different operating system."""
+        if not self.venv_dir.is_dir():
+            return False
+        # Windows venv on non-Windows host
+        if sys.platform != "win32" and (self.venv_dir / "Scripts").is_dir():
+            return True
+        # Unix/Linux venv on Windows host
+        if sys.platform == "win32" and (self.venv_dir / "bin").is_dir() and not (self.venv_dir / "Scripts").is_dir():
+            return True
+        # Inspect pyvenv.cfg for foreign OS path patterns
+        cfg_file = self.venv_dir / "pyvenv.cfg"
+        if cfg_file.is_file():
+            try:
+                cfg_content = cfg_file.read_text(encoding="utf-8", errors="replace")
+                if sys.platform != "win32":
+                    if ":\\" in cfg_content or "home = " in cfg_content and "\\" in cfg_content:
+                        return True
+                else:
+                    for line in cfg_content.splitlines():
+                        if line.strip().startswith("home = ") and (line.strip().endswith("/bin") or "/usr" in line):
+                            return True
+            except Exception:
+                pass
+        return False
+
     def exists(self) -> bool:
         """Checks if .venv is provisioned and functional."""
+        if self.is_cross_platform_corrupted():
+            return False
         return self.get_python_exe().is_file()
 
     def create(self) -> bool:
         """Provisions a fresh .venv in the project root."""
         self.logger.info(f"Creating isolated virtual environment at {self.venv_dir}...")
+
+        # If cross-platform corrupted or non-functional directory exists, wipe it cleanly
+        if self.venv_dir.is_dir() and (self.is_cross_platform_corrupted() or not self.exists()):
+            self.logger.warn("Cleaning up incompatible or partial virtual environment before recreating...")
+            shutil.rmtree(self.venv_dir, ignore_errors=True)
+
+        system_site = sys.platform.startswith("linux")
         try:
             import venv
-            builder = venv.EnvBuilder(with_pip=True, clear=False)
+            builder = venv.EnvBuilder(with_pip=True, clear=True, system_site_packages=system_site)
             builder.create(self.venv_dir)
             self.logger.ok("Virtual environment (.venv) successfully created.")
             return True
         except Exception as e:
             self.logger.warn(f"Standard venv module failed ({e}), falling back to subprocess...")
-            cmd = [sys.executable, "-m", "venv", str(self.venv_dir)]
+            cmd = [sys.executable, "-m", "venv"]
+            if system_site:
+                cmd.append("--system-site-packages")
+            cmd.append(str(self.venv_dir))
             self.logger.exec(" ".join(cmd))
             res = run_hidden_process(cmd, capture_output=True)
             if res.returncode == 0:
                 self.logger.ok("Virtual environment (.venv) created via subprocess.")
                 return True
+
+            # Debian/Ubuntu fallback: If ensurepip failed due to missing python3-venv package
+            if sys.platform.startswith("linux"):
+                self.logger.warn("Subprocess venv creation failed. Attempting creation without pip...")
+                cmd_nopip = [sys.executable, "-m", "venv", "--without-pip"]
+                if system_site:
+                    cmd_nopip.append("--system-site-packages")
+                cmd_nopip.append(str(self.venv_dir))
+                res_nopip = run_hidden_process(cmd_nopip, capture_output=True)
+                if res_nopip.returncode == 0:
+                    self.logger.ok("Virtual environment created (--without-pip). Bootstrapping pip...")
+                    py_exe = self.get_python_exe()
+                    boot_res = run_hidden_process([str(py_exe), "-m", "ensurepip", "--default-pip"], capture_output=True)
+                    if boot_res.returncode == 0:
+                        self.logger.ok("Pip bootstrapped successfully.")
+                        return True
+
             self.logger.error(f"Failed to create .venv: {res.stderr}")
+            if sys.platform.startswith("linux"):
+                self.logger.error("On Debian/Ubuntu systems, install the venv package using:")
+                self.logger.error("  sudo apt-get install -y python3-venv python3-pip")
             return False
+
+    def _verify_pyside6_runtime(self, py_exe: Path) -> bool:
+        """Verifies that PySide6 can initialize Qt GUI plugins on the system."""
+        check_cmd = [str(py_exe), "-c", "import PySide6; from PySide6 import QtWidgets, QtCore; print('OK')"]
+        res = run_hidden_process(check_cmd, capture_output=True)
+        if res.returncode == 0:
+            self.logger.ok("PySide6 Qt GUI runtime verified successfully.")
+            return True
+
+        err_output = res.stderr.strip()
+        self.logger.warn("PySide6 package is installed, but Qt GUI libraries are missing on this system.")
+        if err_output:
+            self.logger.warn(f"Diagnostic error: {err_output}")
+        if sys.platform.startswith("linux"):
+            self.logger.warn("Linux systems require X11/GL system libraries for Qt6. Run:")
+            self.logger.warn("  sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 libxcb-cursor0")
+        return True
 
     def install_dependencies(self) -> bool:
         """Installs or upgrades pyEGClamUI dependencies into .venv."""
@@ -310,15 +479,38 @@ class VenvManager:
 
         # 1. Upgrade pip, setuptools, wheel
         self.logger.info("Upgrading core build utilities (pip, setuptools, wheel)...")
-        upgrade_cmd = [str(py_exe), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"]
+        upgrade_cmd = [
+            str(py_exe),
+            "-m",
+            "pip",
+            "install",
+            "--prefer-binary",
+            "--default-timeout=120",
+            "--upgrade",
+            "pip",
+            "setuptools",
+            "wheel",
+        ]
         self.logger.exec(" ".join(upgrade_cmd))
-        run_hidden_process(upgrade_cmd, capture_output=not self.logger.verbose)
+        up_res = run_hidden_process(upgrade_cmd, capture_output=True)
+        if up_res.returncode != 0:
+            self.logger.warn(f"Notice during build utilities upgrade: {up_res.stderr.strip()}")
 
         # 2. Install project in editable development mode
         self.logger.info("Installing pyEGClamUI and dependencies into .venv...")
-        install_cmd = [str(py_exe), "-m", "pip", "install", "-e", str(self.project_root)]
+        install_cmd = [
+            str(py_exe),
+            "-m",
+            "pip",
+            "install",
+            "--prefer-binary",
+            "--default-timeout=120",
+            "-e",
+            str(self.project_root),
+        ]
         self.logger.exec(" ".join(install_cmd))
 
+        captured_output: list[str] = []
         process = spawn_hidden_process(
             install_cmd,
             stdout=subprocess.PIPE,
@@ -329,16 +521,87 @@ class VenvManager:
 
         for line in iter(process.stdout.readline, ""):
             line_str = line.strip()
-            if line_str and self.logger.verbose:
-                print(f"  {Colors.DIM}{line_str}{Colors.RESET}", flush=True)
+            if line_str:
+                captured_output.append(line_str)
+                if self.logger.verbose:
+                    print(f"  {Colors.DIM}{line_str}{Colors.RESET}", flush=True)
 
         process.wait()
         if process.returncode == 0:
             self.logger.ok("pyEGClamUI packages and dependencies installed successfully.")
-            return True
-        else:
-            self.logger.error("Failed to install dependencies into .venv.")
-            return False
+            return self._verify_pyside6_runtime(py_exe)
+
+        # Installation failed - display buffered error lines to user
+        self.logger.error("Failed to install dependencies via 'pip install -e .'")
+        print(f"\n{Colors.RED}--- pip installation error output ---{Colors.RESET}")
+        for err_line in captured_output[-25:]:
+            print(f"  {Colors.YELLOW}{err_line}{Colors.RESET}")
+        print(f"{Colors.RED}-------------------------------------{Colors.RESET}\n")
+
+        # Fallback 1: Try editable installation without build isolation (utilizes local venv build tools)
+        self.logger.info("Retrying editable installation with local build tools (--no-build-isolation)...")
+        nobuild_cmd = [
+            str(py_exe),
+            "-m",
+            "pip",
+            "install",
+            "--no-build-isolation",
+            "--prefer-binary",
+            "--default-timeout=120",
+            "-e",
+            str(self.project_root),
+        ]
+        self.logger.exec(" ".join(nobuild_cmd))
+        nobuild_res = run_hidden_process(nobuild_cmd, capture_output=True)
+        if nobuild_res.returncode == 0:
+            self.logger.ok("pyEGClamUI installed successfully via local build tools.")
+            return self._verify_pyside6_runtime(py_exe)
+
+        # Fallback 2: Try installing dependencies from requirements.txt directly
+        req_file = self.project_root / "requirements.txt"
+        if req_file.is_file():
+            self.logger.info("Retrying dependency installation via requirements.txt fallback...")
+            req_cmd = [
+                str(py_exe),
+                "-m",
+                "pip",
+                "install",
+                "--prefer-binary",
+                "--default-timeout=120",
+                "-r",
+                str(req_file),
+            ]
+            self.logger.exec(" ".join(req_cmd))
+            req_res = run_hidden_process(req_cmd, capture_output=True)
+            if req_res.returncode == 0:
+                nodeps_cmd = [
+                    str(py_exe),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--no-build-isolation",
+                    "--no-deps",
+                    "-e",
+                    str(self.project_root),
+                ]
+                res_nodeps = run_hidden_process(nodeps_cmd, capture_output=True)
+                if res_nodeps.returncode == 0:
+                    self.logger.ok("pyEGClamUI installed successfully via requirements.txt fallback.")
+                    return self._verify_pyside6_runtime(py_exe)
+
+        # Linux-specific diagnostic advice
+        if sys.platform.startswith("linux"):
+            arch = platform.machine().lower()
+            if arch in ("aarch64", "arm64", "armv7l"):
+                self.logger.warn(f"Note: Architecture is {arch}. Official PyPI wheels for PySide6 are not provided for Linux ARM.")
+                self.logger.info("On Debian/Ubuntu ARM, install PySide6 via system packages:")
+                self.logger.info("  sudo apt-get install -y python3-pyside6")
+                self.logger.info("Then rerun setup with --system-site-packages enabled.")
+            else:
+                self.logger.info("If PySide6 failed on Debian/Ubuntu, verify system packages:")
+                self.logger.info("  sudo apt-get install -y python3-venv python3-pip python3-dev build-essential libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 libxcb-cursor0")
+
+        return False
 
 
 # ------------------------------------------------------------------------------
@@ -377,16 +640,39 @@ class ClamAVProvisioner:
 
         elif self.detector.os_type.startswith("linux"):
             pm = self.detector.detect_package_manager()
+            can_passwordless = (
+                shutil.which("sudo") is not None
+                and run_hidden_process(["sudo", "-n", "true"], capture_output=True).returncode == 0
+            )
             if pm == "apt":
-                self.logger.info("Installing ClamAV on Debian/Ubuntu (requires sudo)...")
-                run_hidden_process(["sudo", "apt-get", "update"])
-                run_hidden_process(["sudo", "apt-get", "install", "-y", "clamav", "clamav-daemon"])
+                self.logger.info("Installing ClamAV on Debian/Ubuntu...")
+                if can_passwordless:
+                    run_hidden_process(["sudo", "apt-get", "update"], capture_output=True)
+                    run_hidden_process(["sudo", "apt-get", "install", "-y", "clamav", "clamav-daemon"], capture_output=not self.logger.verbose)
+                elif sys.stdin.isatty() and shutil.which("sudo"):
+                    subprocess.run(["sudo", "apt-get", "update"])
+                    subprocess.run(["sudo", "apt-get", "install", "-y", "clamav", "clamav-daemon"])
+                else:
+                    self.logger.warn("Sudo privileges needed to install ClamAV. Run:")
+                    self.logger.warn("  sudo apt-get update && sudo apt-get install -y clamav clamav-daemon")
             elif pm == "dnf":
-                self.logger.info("Installing ClamAV on Fedora/RHEL (requires sudo)...")
-                run_hidden_process(["sudo", "dnf", "install", "-y", "clamav", "clamd", "clamav-update"])
+                self.logger.info("Installing ClamAV on Fedora/RHEL...")
+                if can_passwordless:
+                    run_hidden_process(["sudo", "dnf", "install", "-y", "clamav", "clamd", "clamav-update"], capture_output=not self.logger.verbose)
+                elif sys.stdin.isatty() and shutil.which("sudo"):
+                    subprocess.run(["sudo", "dnf", "install", "-y", "clamav", "clamd", "clamav-update"])
+                else:
+                    self.logger.warn("Sudo privileges needed to install ClamAV. Run:")
+                    self.logger.warn("  sudo dnf install -y clamav clamd clamav-update")
             elif pm == "pacman":
-                self.logger.info("Installing ClamAV on Arch Linux (requires sudo)...")
-                run_hidden_process(["sudo", "pacman", "-S", "--noconfirm", "clamav"])
+                self.logger.info("Installing ClamAV on Arch Linux...")
+                if can_passwordless:
+                    run_hidden_process(["sudo", "pacman", "-S", "--noconfirm", "clamav"], capture_output=not self.logger.verbose)
+                elif sys.stdin.isatty() and shutil.which("sudo"):
+                    subprocess.run(["sudo", "pacman", "-S", "--noconfirm", "clamav"])
+                else:
+                    self.logger.warn("Sudo privileges needed to install ClamAV. Run:")
+                    self.logger.warn("  sudo pacman -S --noconfirm clamav")
 
         elif self.detector.os_type == "darwin":
             if shutil.which("brew"):
@@ -408,8 +694,17 @@ class ClamAVProvisioner:
         elif self.detector.os_type.startswith("linux"):
             self.logger.info("Activating clamav-daemon service on Linux...")
             try:
-                res = run_hidden_process(["sudo", "systemctl", "enable", "--now", "clamav-daemon"])
-                if res.returncode == 0 or self.detector.is_daemon_running():
+                can_passwordless = (
+                    shutil.which("sudo") is not None
+                    and run_hidden_process(["sudo", "-n", "true"], capture_output=True).returncode == 0
+                )
+                if can_passwordless:
+                    res = run_hidden_process(["sudo", "systemctl", "enable", "--now", "clamav-daemon"], capture_output=True)
+                elif sys.stdin.isatty() and shutil.which("sudo"):
+                    res = subprocess.run(["sudo", "systemctl", "enable", "--now", "clamav-daemon"])
+                else:
+                    res = None
+                if (res and res.returncode == 0) or self.detector.is_daemon_running():
                     self.logger.ok("clamav-daemon service activated.")
                 else:
                     self.logger.warn("Could not automatically activate clamav-daemon service. Scanner will use standard clamscan fallback.")
@@ -464,8 +759,17 @@ class ClamAVProvisioner:
         elif self.detector.os_type.startswith("linux"):
             self.logger.info("Stopping and disabling clamav-daemon service on Linux...")
             try:
-                res = run_hidden_process(["sudo", "systemctl", "disable", "--now", "clamav-daemon"])
-                if res.returncode == 0:
+                can_passwordless = (
+                    shutil.which("sudo") is not None
+                    and run_hidden_process(["sudo", "-n", "true"], capture_output=True).returncode == 0
+                )
+                if can_passwordless:
+                    res = run_hidden_process(["sudo", "systemctl", "disable", "--now", "clamav-daemon"], capture_output=True)
+                elif sys.stdin.isatty() and shutil.which("sudo"):
+                    res = subprocess.run(["sudo", "systemctl", "disable", "--now", "clamav-daemon"])
+                else:
+                    res = None
+                if res and res.returncode == 0:
                     self.logger.ok("clamav-daemon service disabled and stopped.")
                 else:
                     self.logger.warn("Could not disable clamav-daemon. Run manually: sudo systemctl disable --now clamav-daemon")
@@ -646,8 +950,14 @@ class ShortcutManager:
             self.logger.error("pythonw.exe not found in .venv. Cannot generate Windows shortcuts.")
             return False
 
-        desktop_dir = Path(os.environ.get("USERPROFILE", "")) / "Desktop"
-        start_menu_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+        user_profile = os.environ.get("USERPROFILE", str(Path.home()))
+        app_data = os.environ.get("APPDATA", str(Path(user_profile) / "AppData" / "Roaming"))
+
+        desktop_dir = Path(user_profile) / "Desktop"
+        start_menu_dir = Path(app_data) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+
+        desktop_dir.mkdir(parents=True, exist_ok=True)
+        start_menu_dir.mkdir(parents=True, exist_ok=True)
 
         targets = [
             desktop_dir / "pyEGClamUI.lnk",
@@ -661,7 +971,7 @@ class ShortcutManager:
         foreach ($TargetPath in $Targets) {{
             $Shortcut = $WshShell.CreateShortcut($TargetPath)
             $Shortcut.TargetPath = '{str(pythonw_exe)}'
-            $Shortcut.Arguments = 'main.py'
+            $Shortcut.Arguments = '-m pyegclamui'
             $Shortcut.WorkingDirectory = '{str(self.project_root)}'
             $Shortcut.IconLocation = '{str(self.icon_ico)},0'
             $Shortcut.Description = 'pyEGClamUI - ClamAV Antivirus Desktop Interface'
@@ -707,21 +1017,45 @@ Path={self.project_root}
         target_desktop = apps_dir / "pyegclamui.desktop"
         target_desktop.write_text(desktop_content, encoding="utf-8")
         target_desktop.chmod(0o755)
-
         self.logger.ok(f"Linux application menu entry installed: {target_desktop}")
+
+        # If user has a Desktop directory, create desktop shortcut too
+        desktop_dir = Path.home() / "Desktop"
+        if desktop_dir.is_dir():
+            user_desktop_link = desktop_dir / "pyegclamui.desktop"
+            try:
+                user_desktop_link.write_text(desktop_content, encoding="utf-8")
+                user_desktop_link.chmod(0o755)
+                self.logger.ok(f"Linux desktop shortcut installed: {user_desktop_link}")
+            except Exception as e:
+                self.logger.warn(f"Notice on creating user desktop shortcut: {e}")
+
         return True
 
     def _create_macos_shortcuts(self) -> bool:
         """Creates macOS desktop launch command script."""
         python_exe = self.venv_mgr.get_python_exe()
-        desktop = Path.home() / "Desktop" / "pyEGClamUI.command"
+        desktop_dir = Path.home() / "Desktop"
+        desktop_dir.mkdir(parents=True, exist_ok=True)
+        desktop = desktop_dir / "pyEGClamUI.command"
         content = f"""#!/bin/bash
 cd "{self.project_root}"
 "{python_exe}" -m pyegclamui
 """
         desktop.write_text(content, encoding="utf-8")
         desktop.chmod(0o755)
-        self.logger.ok(f"macOS launcher created: {desktop}")
+        self.logger.ok(f"macOS desktop launcher created: {desktop}")
+
+        apps_dir = Path.home() / "Applications"
+        if apps_dir.is_dir():
+            app_launcher = apps_dir / "pyEGClamUI.command"
+            try:
+                app_launcher.write_text(content, encoding="utf-8")
+                app_launcher.chmod(0o755)
+                self.logger.ok(f"macOS Applications launcher created: {app_launcher}")
+            except Exception:
+                pass
+
         return True
 
 
@@ -784,8 +1118,21 @@ def run_diagnostic_check(detector: SystemDetector, venv_mgr: VenvManager, logger
 
     # Virtual Environment Check
     venv_ok = venv_mgr.exists()
-    venv_status = f"{Colors.GREEN}Active ({venv_mgr.venv_dir}){Colors.RESET}" if venv_ok else f"{Colors.YELLOW}Not Created{Colors.RESET}"
+    if venv_mgr.is_cross_platform_corrupted():
+        venv_status = f"{Colors.RED}Corrupted (Built for different OS - run setup to repair){Colors.RESET}"
+    else:
+        venv_status = f"{Colors.GREEN}Active ({venv_mgr.venv_dir}){Colors.RESET}" if venv_ok else f"{Colors.YELLOW}Not Created{Colors.RESET}"
     print(f" * Local .venv Status:  {venv_status}")
+
+    # Linux-specific prerequisites audit
+    if detector.os_type.startswith("linux"):
+        has_venv = True
+        try:
+            import venv, ensurepip
+        except ImportError:
+            has_venv = False
+        if not has_venv:
+            print(f" * Linux System Venv:  {Colors.RED}Missing python3-venv package (sudo apt install python3-venv){Colors.RESET}")
 
     # ClamAV Binaries Check
     clamscan = detector.get_clamscan_path()
@@ -1014,7 +1361,7 @@ Examples:
 
     logger = SetupLogger(verbose=args.verbose)
     detector = SystemDetector(project_root)
-    venv_mgr = VenvManager(project_root, logger)
+    venv_mgr = VenvManager(project_root, logger, detector)
     clam_prov = ClamAVProvisioner(detector, logger)
     shortcut_mgr = ShortcutManager(project_root, venv_mgr, logger)
     updater = GlobalUpdater(project_root, venv_mgr, clam_prov, logger)
@@ -1057,6 +1404,8 @@ Examples:
         logger.error(f"Python 3.9 or higher is required. Found Python {sys.version.split()[0]}.")
         sys.exit(1)
     logger.ok(f"Python environment compatible ({sys.version.split()[0]}).")
+    if detector.os_type.startswith("linux"):
+        detector.ensure_linux_prerequisites(logger)
 
     # Step 2: Virtual Environment Setup
     logger.step(2, total_steps, "Provisioning Isolated Virtual Environment (.venv)")
@@ -1090,8 +1439,14 @@ Examples:
     print(f"{Colors.GREEN}{Colors.BOLD}       pyEGClamUI Setup Completed Successfully!       {Colors.RESET}")
     print(f"{Colors.GREEN}{Colors.BOLD}======================================================{Colors.RESET}\n")
 
+    manual_exe = venv_mgr.get_python_exe()
+    try:
+        rel_exe = f".{os.sep}{manual_exe.relative_to(project_root)}"
+    except ValueError:
+        rel_exe = str(manual_exe)
+
     print(f" * Desktop Shortcut: Created on your desktop.")
-    print(f" * Manual Launch:   .{os.sep}.venv{os.sep}Scripts{os.sep}python.exe -m pyegclamui")
+    print(f" * Manual Launch:   {rel_exe} -m pyegclamui")
     print(f" * Maintenance:     python setup/setup.py --update\n")
 
     if args.start:

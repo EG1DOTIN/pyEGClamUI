@@ -7,7 +7,10 @@ import sys
 import subprocess
 import tempfile
 from pathlib import Path
-import pytest
+try:
+    import pytest
+except ImportError:
+    pytest = None
 
 # Ensure project root is in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -80,6 +83,29 @@ def test_venv_manager_paths():
         assert venv_mgr.exists() is True
 
 
+def test_venv_manager_cross_platform_corruption():
+    """Validates that foreign OS venvs (e.g. Windows Scripts on Linux) are flagged as corrupted."""
+    logger = SetupLogger()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_root = Path(tmpdir)
+        venv_mgr = VenvManager(fake_root, logger)
+
+        if sys.platform != "win32":
+            # Simulate Windows venv copied to Linux
+            scripts_dir = fake_root / ".venv" / "Scripts"
+            scripts_dir.mkdir(parents=True)
+            (scripts_dir / "python.exe").touch()
+            assert venv_mgr.is_cross_platform_corrupted() is True
+            assert venv_mgr.exists() is False
+        else:
+            # Simulate Linux venv copied to Windows
+            bin_dir = fake_root / ".venv" / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").touch()
+            assert venv_mgr.is_cross_platform_corrupted() is True
+            assert venv_mgr.exists() is False
+
+
 def test_shortcut_manager_linux_generation():
     logger = SetupLogger()
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -94,6 +120,7 @@ def test_shortcut_manager_linux_generation():
         orig_home = Path.home
         try:
             Path.home = staticmethod(lambda: fake_root)
+            (fake_root / "Desktop").mkdir(parents=True, exist_ok=True)
             success = shortcut_mgr._create_linux_shortcuts()
             assert success is True
 
@@ -102,6 +129,9 @@ def test_shortcut_manager_linux_generation():
             content = desktop_file.read_text(encoding="utf-8")
             assert "Name=pyEGClamUI" in content
             assert "Exec=" in content
+
+            user_desktop = fake_root / "Desktop" / "pyegclamui.desktop"
+            assert user_desktop.is_file()
         finally:
             Path.home = orig_home
 
@@ -162,6 +192,32 @@ def test_setup_cli_help_subprocess():
     assert "--check" in res.stdout
     assert "--uninstall" in res.stdout
     assert "--purge-all" in res.stdout
+
+
+def test_root_setup_cli_forwarding():
+    """Validates that running 'python setup.py --check' from root forwards correctly."""
+    cmd = [sys.executable, str(PROJECT_ROOT / "setup.py"), "--check"]
+    res = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    assert res.returncode == 0
+    assert "System Diagnostic & Compatibility Audit" in res.stdout
+
+
+def test_root_setup_cli_help_forwarding():
+    """Validates that running 'python setup.py --help' forwards correctly."""
+    cmd = [sys.executable, str(PROJECT_ROOT / "setup.py"), "--help"]
+    res = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    assert res.returncode == 0
+    assert "pyEGClamUI - Unified Cross-Platform Setup" in res.stdout
+    assert "--install" in res.stdout
+
+
+def test_root_setup_module_reexport():
+    """Validates that importing setup directly from project root re-exports public installer symbols."""
+    code = "import setup; assert hasattr(setup, 'SystemDetector'); assert hasattr(setup, 'VenvManager'); print('OK')"
+    cmd = [sys.executable, "-c", code]
+    res = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    assert res.returncode == 0
+    assert "OK" in res.stdout
 
 
 def test_prompt_user_behavior(monkeypatch):

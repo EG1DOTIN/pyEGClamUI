@@ -1,11 +1,11 @@
 # pyEGClamUI
 
-[![Version: 3.1.0](https://img.shields.io/badge/Version-3.1.0-00C853.svg)](docs/VERSIONING.md)
+[![Version: 3.1.1](https://img.shields.io/badge/Version-3.1.1-00C853.svg)](docs/VERSIONING.md)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python: >=3.9](https://img.shields.io/badge/Python->=3.9-3776AB.svg?logo=python&logoColor=white)](https://python.org)
 [![Platform: Windows | Linux | macOS](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/EG1DOTIN/pyEGClamUI)
 
-**Current Stable Release**: `v3.1.0` — An open-source, cross-platform desktop GUI for ClamAV engine. Built with Python and PySide6 (Qt).
+**Current Stable Release**: `v3.1.1` — An open-source, cross-platform desktop GUI for ClamAV engine. Built with Python and PySide6 (Qt).
 
 ---
 
@@ -61,7 +61,7 @@ pyEGClamUI includes an automated, cross-platform bootstrap setup suite ([`setup/
 ### 🪟 Windows Setup Options
 
 #### Option A: Standalone Setup Wizard (Recommended for End Users)
-Download the latest `pyEGClamUI-v3.1.0-Windows-Setup.exe` installer from [GitHub Releases](https://github.com/EG1DOTIN/pyEGClamUI/releases):
+Download the latest `pyEGClamUI-v3.1.1-Windows-Setup.exe` installer from [GitHub Releases](https://github.com/EG1DOTIN/pyEGClamUI/releases):
 * 🛡️ **Zero False Positives**: Uses official signed Python 3.12 embedded runtime.
 * ⚡ **Ultra-Fast Scans**: Automatically configures and launches ClamD resident daemon service (15 ms latency).
 * 🖥️ **Full Desktop Integration**: Configures Desktop/Start Menu shortcuts and clean Windows uninstaller.
@@ -98,14 +98,21 @@ python setup/setup.py --install --start
 ### Manual pip Installation (Optional)
 
 ```bash
-python -m venv .venv
+# Debian / Ubuntu prerequisites (if not yet installed):
+# sudo apt install -y python3-venv python3-pip libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0
+
+python3 -m venv .venv
 # Windows:
 .venv\Scripts\activate
 # Linux/macOS:
 source .venv/bin/activate
 
+pip install --upgrade pip setuptools wheel
 pip install -e .
 ```
+
+> [!NOTE]
+> **Linux ARM64 (Apple Silicon VMs / Raspberry Pi)**: Pre-compiled PySide6 wheels are not on PyPI for Linux ARM. Install system Qt6 via `sudo apt install python3-pyside6` and create your venv with `python3 -m venv --system-site-packages .venv`.
 
 ---
 

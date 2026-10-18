@@ -68,6 +68,7 @@ $RECYCLE.BIN/
 # AI Agent rules & configurations (local only)
 .agent/
 .agents/
+AGENTS.md
 
 # gitignore directory
 gitignore/
