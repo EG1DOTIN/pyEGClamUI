@@ -195,13 +195,16 @@ pyEGClamUI/
 
 ## System Requirements & Technology Stack
 
-| Component | Minimum Requirement | Recommended |
+| Component | Minimum Requirement (Tier 2 Lite) | Recommended (Tier 1 Modern Suite) |
 | :--- | :--- | :--- |
 | **Python** | Python 3.9+ | Python 3.11 or 3.12 |
-| **GUI Framework** | PySide6 >= 6.5.0 (Qt 6.5+) | PySide6 6.7+ |
-| **Operating System** | Windows 10/11, Linux (kernel 4.15+), macOS 12+ | Windows 11, Ubuntu 24.04, macOS 14+ |
-| **Antivirus Backend** | Cisco ClamAV® 0.103+ | Cisco ClamAV® 1.4+ / 1.5+ |
+| **Physical Memory (RAM)** | 512 MB (calibrated boundary < 4.0 GB) | 4.0 GB+ (calibrated boundary >= 4.0 GB) |
+| **Architecture / Word Size** | 32-bit (`i386`, `i686`, `armhf`) or 64-bit | 64-bit (`x86_64`, `amd64`, `arm64`) |
+| **GUI Framework** | Python standard library `tkinter.ttk` | PySide6 >= 6.5.0 (Qt 6.5+) |
+| **Operating System** | Windows 10/11, Linux (antiX, Debian, Ubuntu, Fedora, Arch, Alpine), macOS | Windows 11, Ubuntu 24.04, macOS 14+ |
+| **Antivirus Backend** | Cisco ClamAV® 0.103+ (standalone `clamscan`) | Cisco ClamAV® 1.4+ / 1.5+ (resident `clamd` daemon) |
 | **Process Monitoring** | psutil >= 5.9.0 | psutil latest |
-| **File Monitoring** | watchdog >= 3.0.0 | watchdog latest |
+| **File Monitoring** | watchdog >= 3.0.0 (optional in Lite) | watchdog latest |
 | **Safe Deletion** | send2trash >= 1.8.0 | send2trash latest |
 | **License** | GPL-3.0-or-later | 100% Free & Open-Source (FOSS) |
+

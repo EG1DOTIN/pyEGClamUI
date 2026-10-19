@@ -132,6 +132,11 @@ flowchart TD
 | `C:\Windows\System32\config\SAM: Can't open file ERROR` | 🟡 **Error** | Group 1: `C:\...\SAM`<br>Group 2: `Can't open file` |
 | `Infected files: 1` | 🛡️ **Summary** | Metric: `threats_found = 1` |
 
+> [!IMPORTANT]
+> **Zero False-Clean Guarantee**:
+> If the scan process fails to launch (e.g. ClamAV binary missing), is aborted, or encounters a fatal execution error, `clean` is strictly set to `False`, `errors_count` is incremented, and `summary_text` details the error. Both GUI tiers (`ScanDialog` and `TkinterApp`) evaluate `errors_count` and `summary_text` to guarantee execution failures are prominently displayed as crimson **Scan Error** modals/badges rather than falsely reporting clean status.
+
+
 ---
 
 ## 6. Scan State Machine & User Controls

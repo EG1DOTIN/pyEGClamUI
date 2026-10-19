@@ -161,10 +161,15 @@ pyegclamui-scan /path/to/folder
 
 `pyEGClamUI` interfaces with the open-source ClamAV engine on your system:
 * **Windows (10 / 11)**: `winget install Cisco.ClamAV` (or use the built-in setup wizard: `pyegclamui-setup --install`)
-* **Linux (Ubuntu / Debian / Mint)**: `sudo apt install clamav clamav-daemon`
-* **Linux (Fedora / RHEL)**: `sudo dnf install clamav clamd clamav-update`
-* **Linux (Arch Linux)**: `sudo pacman -S clamav`
-* **macOS**: `brew install clamav`
+* **Linux (Ubuntu / Debian / Mint >= 4GB RAM)**: `sudo apt install -y clamav clamav-daemon && sudo freshclam`
+* **Linux (antiX / Lightweight / 32-bit < 4GB RAM)**: `sudo apt install -y clamav clamav-freshclam && sudo freshclam`
+* **Linux (Fedora / RHEL)**: `sudo dnf install -y clamav clamav-update && sudo freshclam`
+* **Linux (Arch Linux)**: `sudo pacman -S --noconfirm clamav && sudo freshclam`
+* **Linux (Alpine)**: `sudo apk add --no-cache clamav freshclam && sudo freshclam`
+* **macOS**: `brew install clamav && freshclam`
+
+> [!NOTE]
+> On systems with **< 4.0 GB RAM** or 32-bit CPUs, `pyEGClamUI` automatically operates in Lite Mode with on-demand `clamscan`, avoiding the heavy `clamd` daemon (~1.5 GB resident RAM) and preventing memory exhaustion.
 
 ---
 

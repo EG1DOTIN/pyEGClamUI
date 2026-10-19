@@ -94,7 +94,7 @@ bash setup/install.sh
 ```
 
 > [!TIP]
-> **Linux Automation**: The bootstrap script automatically detects your distribution package manager (`apt`, `dnf`, `pacman`), provisions `python3-venv` and build utilities if missing from your system Python, configures required Qt6 runtime libraries (`libgl1`, `libegl1`, `libxkbcommon-x11-0`, `libxcb-cursor0`), and repairs any cross-platform corrupted `.venv` files.
+> **Linux Automation**: The bootstrap script automatically detects your distribution package manager (`apt`, `dnf`, `pacman`, `apk`, `zypper`), provisions `python3-venv` and build utilities if missing from your system Python, configures required Qt6 runtime libraries (`libgl1`, `libegl1`, `libxkbcommon-x11-0`, `libxcb-cursor0`), installs `python3-tk` for pyEGClamUI Lite, auto-provisions ClamAV tailored to available RAM (< 4GB uses standalone `clamav`, avoiding `clamd` daemon memory exhaustion), initializes virus definitions via `freshclam`, and deploys terminal CLI command wrappers (`pyegclamui`, `egclam`, `pyclamui`, `pyegclamui-lite`, `pyegclamui-scan`, `pyegclamui-setup`) to `/usr/local/bin` and `~/.local/bin`.
 
 ---
 
