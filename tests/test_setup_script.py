@@ -132,8 +132,19 @@ def test_shortcut_manager_linux_generation():
 
             user_desktop = fake_root / "Desktop" / "pyegclamui.desktop"
             assert user_desktop.is_file()
+
+            # Verify terminal CLI command wrappers
+            bin_dir = fake_root / ".local" / "bin"
+            assert bin_dir.is_dir()
+            for cmd in ["pyegclamui", "egclam", "pyclamui", "pyegclamui-lite", "pyclamui-lite", "pyegclamui-scan", "pyegclamui-setup"]:
+                wrapper_file = bin_dir / cmd
+                assert wrapper_file.is_file(), f"Expected CLI wrapper {wrapper_file} to exist"
+                content = wrapper_file.read_text(encoding="utf-8")
+                assert "#!/usr/bin/env bash" in content
+                assert "exec " in content
         finally:
             Path.home = orig_home
+
 
 
 def test_shortcut_manager_macos_generation():

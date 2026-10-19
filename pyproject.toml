@@ -60,11 +60,18 @@ dev = [
 pyegclamui-scan = "pyegclamui.core.scanner:cli_main"
 pyegclamui-setup = "pyegclamui.core.setup_engine:cli_main"
 egclam = "pyegclamui.gui.app:main"
+pyegclamui = "pyegclamui.gui.app:main"
+pyclamui = "pyegclamui.gui.app:main"
 pyegclamui-lite = "pyegclamui.gui.tk_app:main"
+pyclamui-lite = "pyegclamui.gui.tk_app:main"
 
 [project.gui-scripts]
 pyegclamui = "pyegclamui.gui.app:main"
+egclam = "pyegclamui.gui.app:main"
+pyclamui = "pyegclamui.gui.app:main"
 pyegclamui-lite = "pyegclamui.gui.tk_app:main"
+pyclamui-lite = "pyegclamui.gui.tk_app:main"
+
 
 [tool.setuptools.packages.find]
 where = ["src"]

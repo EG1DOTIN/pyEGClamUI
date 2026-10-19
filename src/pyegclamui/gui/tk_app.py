@@ -63,11 +63,22 @@ class TkinterApp:
     def __init__(self, root: Any, initial_path: Optional[str] = None):
         self.root = root
         self.root.title("pyEGClamUI Lite - Antivirus Desktop Interface")
-        self.root.minsize(740, 540)
-        self.root.geometry("840, 620")
+
+        # Dynamically size and center window within display boundaries (handles 800x600/1024x768 VMs gracefully)
+        try:
+            screen_w = self.root.winfo_screenwidth()
+            screen_h = self.root.winfo_screenheight()
+            win_w = min(840, max(640, int(screen_w * 0.90)))
+            win_h = min(620, max(460, int(screen_h * 0.85)))
+            self.root.geometry(f"{win_w}x{win_h}")
+            self.root.minsize(min(640, win_w), min(460, win_h))
+        except Exception:
+            self.root.geometry("840x620")
+            self.root.minsize(640, 460)
 
         # Set Window Icon if available
         self._set_window_icon()
+
 
         # Core Backend Subsystems
         self.config = Config.get_instance()
@@ -108,10 +119,11 @@ class TkinterApp:
                 if sys.platform == "win32" and icon_path.suffix.lower() == ".ico":
                     self.root.iconbitmap(str(icon_path))
                 else:
-                    img = tk.PhotoImage(file=str(icon_path))
-                    self.root.iconphoto(False, img)
+                    self._icon_img = tk.PhotoImage(file=str(icon_path))
+                    self.root.iconphoto(False, self._icon_img)
         except Exception:
             pass
+
 
     def _configure_styles(self):
         """Sets up clean, modern ttk styles for the Lite interface."""

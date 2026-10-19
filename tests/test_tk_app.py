@@ -359,6 +359,35 @@ def test_tkinter_app_double_update_protection():
     app.updater.run_update.assert_not_called()
 
 
+def test_tkinter_app_geometry_format_validity():
+    """Validates that window geometry specifier is formatted as WxH without commas and fits screen."""
+    import re
+
+    # 1. Standard desktop display (1920x1080)
+    mock_root_1080p = MagicMock()
+    mock_root_1080p.winfo_screenwidth.return_value = 1920
+    mock_root_1080p.winfo_screenheight.return_value = 1080
+    app, _, _, _, _ = _create_test_app(mock_root_1080p)
+
+    geo_arg = mock_root_1080p.geometry.call_args[0][0]
+    assert "," not in geo_arg, f"Geometry string '{geo_arg}' must not contain commas"
+    assert "x" in geo_arg, f"Geometry string '{geo_arg}' must use 'x' separator"
+    assert re.match(r"^\d+x\d+$", geo_arg), f"Invalid geometry format: {geo_arg}"
+    assert geo_arg == "840x620"
+
+    # 2. VirtualBox / Small VM display (800x600)
+    mock_root_vm = MagicMock()
+    mock_root_vm.winfo_screenwidth.return_value = 800
+    mock_root_vm.winfo_screenheight.return_value = 600
+    app_vm, _, _, _, _ = _create_test_app(mock_root_vm)
+
+    geo_arg_vm = mock_root_vm.geometry.call_args[0][0]
+    assert "," not in geo_arg_vm
+    assert re.match(r"^\d+x\d+$", geo_arg_vm)
+    w_vm, h_vm = map(int, geo_arg_vm.split("x"))
+    assert w_vm <= 800, f"Width {w_vm} must fit inside 800px display"
+    assert h_vm <= 600, f"Height {h_vm} must fit inside 600px display"
+
 
 if __name__ == "__main__":
     print("\n=== Running test_tk_app.py test suite ===")
@@ -392,5 +421,8 @@ if __name__ == "__main__":
     print("  [PASS] test_tkinter_app_double_launch_protection")
     test_tkinter_app_double_update_protection()
     print("  [PASS] test_tkinter_app_double_update_protection")
-    print("All 15 Tkinter Lite tests passed successfully!\n")
+    test_tkinter_app_geometry_format_validity()
+    print("  [PASS] test_tkinter_app_geometry_format_validity")
+    print("All 16 Tkinter Lite tests passed successfully!\n")
+
 

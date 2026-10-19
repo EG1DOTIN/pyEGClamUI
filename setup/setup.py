@@ -1001,6 +1001,19 @@ class ShortcutManager:
                 Path.home() / "Desktop" / "pyegclamui.desktop",
                 Path.home() / ".local" / "share" / "icons" / "hicolor" / "128x128" / "apps" / "pyegclamui.png"
             ]
+            cli_names = [
+                "pyegclamui",
+                "egclam",
+                "pyclamui",
+                "pyegclamui-lite",
+                "pyclamui-lite",
+                "pyegclamui-scan",
+                "pyegclamui-setup",
+            ]
+            for b_dir in [Path.home() / ".local" / "bin", Path("/usr/local/bin")]:
+                for cmd_name in cli_names:
+                    targets.append(b_dir / cmd_name)
+
             for s in targets:
                 if s.is_file():
                     try:
@@ -1010,6 +1023,7 @@ class ShortcutManager:
                     except Exception as e:
                         self.logger.warn(f"Failed to remove {s}: {e}")
             return True
+
         elif sys.platform == "darwin":
             targets = [
                 Path.home() / "Desktop" / "pyEGClamUI.command",
@@ -1118,7 +1132,36 @@ Exec="{python_exe}" -m pyegclamui.core.scanner --quick
             except Exception as e:
                 self.logger.warn(f"Notice on creating user desktop shortcut: {e}")
 
+        # Install terminal CLI command wrappers (e.g. pyegclamui, egclam, pyclamui, pyegclamui-lite)
+        commands_map = {
+            "pyegclamui": f'exec "{python_exe}" -m pyegclamui "$@"',
+            "egclam": f'exec "{python_exe}" -m pyegclamui "$@"',
+            "pyclamui": f'exec "{python_exe}" -m pyegclamui "$@"',
+            "pyegclamui-lite": f'exec "{python_exe}" -m pyegclamui.gui.tk_app "$@"',
+            "pyclamui-lite": f'exec "{python_exe}" -m pyegclamui.gui.tk_app "$@"',
+            "pyegclamui-scan": f'exec "{python_exe}" -m pyegclamui.core.scanner "$@"',
+            "pyegclamui-setup": f'exec "{python_exe}" -m pyegclamui.core.setup_engine "$@"',
+        }
+
+        user_bin_dir = Path.home() / ".local" / "bin"
+        target_bin_dirs = [user_bin_dir]
+        usr_local_bin = Path("/usr/local/bin")
+        if os.access(usr_local_bin, os.W_OK):
+            target_bin_dirs.append(usr_local_bin)
+
+        for b_dir in target_bin_dirs:
+            try:
+                b_dir.mkdir(parents=True, exist_ok=True)
+                for cmd_name, cmd_exec in commands_map.items():
+                    wrapper = b_dir / cmd_name
+                    wrapper.write_text(f"#!/usr/bin/env bash\n{cmd_exec}\n", encoding="utf-8")
+                    wrapper.chmod(0o755)
+                self.logger.ok(f"Linux terminal CLI wrappers installed: {b_dir}")
+            except Exception as e:
+                self.logger.warn(f"Notice on installing CLI wrappers in {b_dir}: {e}")
+
         return True
+
 
     def _create_macos_shortcuts(self) -> bool:
         """Creates macOS desktop launch command script."""

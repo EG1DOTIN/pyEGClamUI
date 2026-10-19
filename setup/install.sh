@@ -152,3 +152,33 @@ echo -e "${GREEN}[+] Python environment verified: $($PYTHON_BIN --version)${RESE
 
 # 3. Hand off to setup.py
 "$PYTHON_BIN" "$PROJECT_ROOT/setup/setup.py" "$@"
+
+# 4. Ensure terminal CLI command wrappers are available in system PATH
+if [ -d "$HOME/.local/bin" ]; then
+    CLI_BINARIES="pyegclamui egclam pyclamui pyegclamui-lite pyclamui-lite pyegclamui-scan pyegclamui-setup"
+
+    # Try copying to /usr/local/bin for immediate system-wide availability in all terminal sessions
+    if [ -w "/usr/local/bin" ]; then
+        for b in $CLI_BINARIES; do
+            if [ -f "$HOME/.local/bin/$b" ]; then
+                cp -f "$HOME/.local/bin/$b" "/usr/local/bin/$b" 2>/dev/null && chmod +x "/usr/local/bin/$b" 2>/dev/null || true
+            fi
+        done
+        echo -e "${GREEN}[+] Installed system-wide CLI commands in /usr/local/bin${RESET}"
+    elif command -v sudo &>/dev/null && sudo -n true 2>/dev/null; then
+        for b in $CLI_BINARIES; do
+            if [ -f "$HOME/.local/bin/$b" ]; then
+                sudo cp -f "$HOME/.local/bin/$b" "/usr/local/bin/$b" 2>/dev/null && sudo chmod +x "/usr/local/bin/$b" 2>/dev/null || true
+            fi
+        done
+        echo -e "${GREEN}[+] Installed system-wide CLI commands in /usr/local/bin${RESET}"
+    fi
+
+    # Ensure ~/.local/bin is in PATH for user
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+        if [ -f "$HOME/.bashrc" ] && ! grep -q 'HOME/.local/bin' "$HOME/.bashrc"; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+        fi
+    fi
+fi
+
