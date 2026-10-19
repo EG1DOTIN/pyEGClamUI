@@ -419,11 +419,15 @@ class ClamScanner:
                         on_status=on_status,
                     )
                 report.summary_text = f"Error: {fnf}"
+                report.errors_count = 1
+                report.errors_list.append({"error": str(fnf)})
                 report.end_time = datetime.now()
                 self.is_running = False
                 return report
             except Exception as e:
                 report.summary_text = f"Error: {e}"
+                report.errors_count = 1
+                report.errors_list.append({"error": str(e)})
                 report.end_time = datetime.now()
                 self.is_running = False
                 return report
@@ -441,6 +445,8 @@ class ClamScanner:
             )
         except Exception as e:
             report.summary_text = f"Failed to start scanner process: {e}"
+            report.errors_count = 1
+            report.errors_list.append({"error": f"Failed to start scanner process: {e}"})
             report.end_time = datetime.now()
             self.is_running = False
             return report

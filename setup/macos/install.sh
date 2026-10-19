@@ -82,6 +82,14 @@ fi
 
 echo -e "${GREEN}[+] Python environment verified: $($PYTHON_BIN --version)${RESET}"
 
+# Check ClamAV antivirus engine availability
+if ! command -v clamscan &>/dev/null; then
+    if command -v brew &>/dev/null; then
+        echo -e "${CYAN}[*] Installing ClamAV antivirus engine via Homebrew...${RESET}"
+        brew install clamav || echo -e "${YELLOW}[!] Warning: ClamAV could not be auto-installed via Homebrew.${RESET}"
+    fi
+fi
+
 # 3. Hand off to setup.py
 "$PYTHON_BIN" "$PROJECT_ROOT/setup/setup.py" "$@"
 

@@ -56,6 +56,16 @@ graph LR
     S5 --> FoundSock
 ```
 
+### 1.3 Virus Signature Database Discovery (`has_virus_signatures`)
+
+Before scanning can commence, the engine verifies that ClamAV signature databases (`.cvd` or `.cld` files, such as `main.cvd`, `daily.cld`, `bytecode.cvd`) actually exist on disk:
+
+* **Linux**: `/var/lib/clamav`, `/usr/local/share/clamav`, `/var/clamav`, and `~/.local/share/pyegclamui/database`
+* **macOS**: `/opt/homebrew/var/lib/clamav`, `/usr/local/var/lib/clamav`, `/var/lib/clamav`, and `~/Library/Application Support/pyEGClamUI/database`
+* **Windows**: `C:\Program Files\ClamAV\database`, `C:\ProgramData\ClamAV\db`, and `%LOCALAPPDATA%\pyegclamui\database`
+
+If executables exist but no `.cvd`/`.cld` files are found, `detector.has_virus_signatures()` returns `False`. The setup engine automatically invokes `freshclam` to populate the initial database, and both GUI tiers alert the user if signatures require downloading.
+
 ---
 
 ## 2. ClamScanner Engine (`scanner.py`)

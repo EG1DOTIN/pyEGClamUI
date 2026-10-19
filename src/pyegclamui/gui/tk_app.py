@@ -147,28 +147,37 @@ class TkinterApp:
         header_frame = ttk.LabelFrame(self.root, text=" System Status & Engine Health ", padding=10)
         header_frame.pack(fill=tk.X, padx=12, pady=(10, 6))
 
-        # Row 1: Engine & Daemon
+        # Row 1: Engine & Signatures
         clamscan_path = self.detector.get_clamscan_path()
-        engine_str = f"Installed ({Path(clamscan_path).name})" if clamscan_path else "Not Found"
-        daemon_active, conn_type = self.detector.check_daemon_socket()
-        daemon_str = f"Active ({conn_type})" if daemon_active else "Offline (Using Standard clamscan)"
+        engine_str = f"Installed ({Path(clamscan_path).name})" if clamscan_path else "Not Installed"
+        has_sigs = self.detector.has_virus_signatures()
+        ver_info = self.detector.get_engine_version()
+        db_ver = ver_info.get("db_version", "Unknown")
+        sig_str = f"Active (v{db_ver})" if has_sigs else "Missing (Update Required)"
 
         lbl_engine = ttk.Label(header_frame, text="Antivirus Engine:", font=("Helvetica", 9, "bold"))
         lbl_engine.grid(row=0, column=0, sticky=tk.W, padx=6, pady=2)
         val_engine = ttk.Label(header_frame, text=engine_str, foreground="#16a34a" if clamscan_path else "#dc2626")
         val_engine.grid(row=0, column=1, sticky=tk.W, padx=6, pady=2)
 
-        lbl_daemon = ttk.Label(header_frame, text="Daemon Acceleration:", font=("Helvetica", 9, "bold"))
-        lbl_daemon.grid(row=0, column=2, sticky=tk.W, padx=12, pady=2)
-        val_daemon = ttk.Label(header_frame, text=daemon_str, foreground="#16a34a" if daemon_active else "#d97706")
-        val_daemon.grid(row=0, column=3, sticky=tk.W, padx=6, pady=2)
+        lbl_sig = ttk.Label(header_frame, text="Virus Signatures (VSD):", font=("Helvetica", 9, "bold"))
+        lbl_sig.grid(row=0, column=2, sticky=tk.W, padx=12, pady=2)
+        val_sig = ttk.Label(header_frame, text=sig_str, foreground="#16a34a" if has_sigs else "#dc2626")
+        val_sig.grid(row=0, column=3, sticky=tk.W, padx=6, pady=2)
 
-        # Row 2: Architecture & Memory Allocation
+        # Row 2: Daemon & Architecture
+        daemon_active, conn_type = self.detector.check_daemon_socket()
+        daemon_str = f"Active ({conn_type})" if daemon_active else "Offline (On-Demand Mode)"
+        lbl_daemon = ttk.Label(header_frame, text="Daemon Acceleration:", font=("Helvetica", 9, "bold"))
+        lbl_daemon.grid(row=1, column=0, sticky=tk.W, padx=6, pady=2)
+        val_daemon = ttk.Label(header_frame, text=daemon_str, foreground="#16a34a" if daemon_active else "#d97706")
+        val_daemon.grid(row=1, column=1, sticky=tk.W, padx=6, pady=2)
+
         ram_info = f"{self.specs.get('ram_gb', 0)} GB RAM | {self.specs.get('machine', '')} ({'64-bit' if self.specs.get('is_64bit') else '32-bit'})"
         lbl_arch = ttk.Label(header_frame, text="Execution Profile:", font=("Helvetica", 9, "bold"))
-        lbl_arch.grid(row=1, column=0, sticky=tk.W, padx=6, pady=2)
-        val_arch = ttk.Label(header_frame, text=f"{ram_info} - Lite Mode (< 4.0GB / Low-RAM)")
-        val_arch.grid(row=1, column=1, columnspan=3, sticky=tk.W, padx=6, pady=2)
+        lbl_arch.grid(row=1, column=2, sticky=tk.W, padx=12, pady=2)
+        val_arch = ttk.Label(header_frame, text=f"{ram_info} - Lite Mode")
+        val_arch.grid(row=1, column=3, sticky=tk.W, padx=6, pady=2)
 
     def _build_notebook_tabs(self):
         """Builds tabs for Scanner, Quarantine Vault, and Updates."""
@@ -359,6 +368,31 @@ class TkinterApp:
 
     def _launch_scan(self, targets: list[str], title: str):
         if self.is_scanning:
+            return
+
+        clamscan_path = self.detector.get_clamscan_path()
+        daemon_online, _ = self.detector.check_daemon_socket()
+        if not clamscan_path and not daemon_online:
+            self._show_error(
+                "ClamAV Engine Required",
+                "ClamAV antivirus engine is not installed on this system.\n\n"
+                "To enable scanning, please install ClamAV:\n"
+                "  • Debian/Ubuntu/antiX: sudo apt update && sudo apt install -y clamav && sudo freshclam\n"
+                "  • Fedora/RHEL:         sudo dnf install -y clamav clamav-update && sudo freshclam\n"
+                "  • Arch Linux:          sudo pacman -S --noconfirm clamav && sudo freshclam\n"
+                "  • macOS:               brew install clamav && freshclam\n"
+                "  • Windows:             Install from https://www.clamav.net/downloads"
+            )
+            return
+
+        if not self.detector.has_virus_signatures():
+            if self._ask_yes_no(
+                "Signatures Missing",
+                "ClamAV engine is installed, but virus definitions (VSD) have not been downloaded yet.\n\n"
+                "Would you like to switch to the Maintenance tab and update signatures now?"
+            ):
+                self.notebook.select(self.tab_maint)
+                self._trigger_signature_update()
             return
 
         self.is_scanning = True
@@ -556,22 +590,38 @@ class TkinterApp:
                     self.btn_custom.config(state=tk.NORMAL)
                     self.btn_stop.config(state=tk.DISABLED)
 
-                    status = "Scan cancelled." if report.cancelled else "Scan completed."
-                    self.lbl_progress.config(text=status)
-
-                    summary = (
-                        f"=== {status} in {report.duration_seconds()}s ===\n"
-                        f"Total Files Scanned: {report.scanned_files} | Threats Found: {report.threats_found}"
-                    )
-                    self._log_msg(summary, "warn" if report.threats_found > 0 else "clean")
-
-                    if report.threats_found > 0:
+                    if report.cancelled:
+                        status = "Scan cancelled."
+                        self.lbl_progress.config(text=status)
+                        summary = f"=== Scan cancelled in {report.duration_seconds()}s ==="
+                        self._log_msg(summary, "warn")
+                    elif report.errors_count > 0 or (report.summary_text and report.summary_text.startswith("Error")):
+                        status = "Scan error."
+                        self.lbl_progress.config(text=status)
+                        summary = f"=== Scan failed in {report.duration_seconds()}s: {report.summary_text} ==="
+                        self._log_msg(summary, "threat")
+                        self._show_error("Scan Error", f"Scan could not be completed:\n\n{report.summary_text}")
+                    elif report.threats_found > 0:
+                        status = "Scan completed with threats found."
+                        self.lbl_progress.config(text=status)
+                        summary = (
+                            f"=== Threats Found in {report.duration_seconds()}s ===\n"
+                            f"Total Files Scanned: {report.scanned_files} | Threats Found: {report.threats_found}"
+                        )
+                        self._log_msg(summary, "threat")
                         self._refresh_quarantine_view()
                         self._show_warning(
                             "Threats Detected",
                             f"Scan completed: {report.threats_found} threat(s) detected and remediated according to preferences."
                         )
                     else:
+                        status = "Scan completed clean."
+                        self.lbl_progress.config(text=status)
+                        summary = (
+                            f"=== Scan clean in {report.duration_seconds()}s ===\n"
+                            f"Total Files Scanned: {report.scanned_files} | Threats Found: 0"
+                        )
+                        self._log_msg(summary, "clean")
                         self._show_info("Scan Clean", "Scan completed. No malware found on target paths.")
 
                 elif ev_type == "maint_log":

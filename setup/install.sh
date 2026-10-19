@@ -131,6 +131,19 @@ if [[ "$OSTYPE" == "linux"* ]]; then
             echo -e "${YELLOW}[!] 32-bit architecture detected ($ARCH).${RESET}"
             echo -e "${GREEN}[+] pyEGClamUI Lite (Tkinter GUI) is qualified and ready for this machine.${RESET}"
         fi
+
+        # Check ClamAV antivirus engine availability
+        if ! command -v clamscan &>/dev/null; then
+            echo -e "${CYAN}[*] Installing ClamAV antivirus engine via apt...${RESET}"
+            ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m)
+            MEM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo "0")
+            if [[ "$ARCH" == *"i386"* || "$ARCH" == *"i686"* || "$MEM_KB" -lt 3932160 ]]; then
+                echo -e "${YELLOW}[!] Low-RAM or 32-bit system detected. Installing standalone ClamAV...${RESET}"
+                sudo apt-get install -y clamav clamav-freshclam || sudo apt-get install -y clamav || echo -e "${YELLOW}[!] Warning: ClamAV could not be auto-installed via apt.${RESET}"
+            else
+                sudo apt-get install -y clamav clamav-daemon || sudo apt-get install -y clamav clamav-freshclam || sudo apt-get install -y clamav || echo -e "${YELLOW}[!] Warning: ClamAV could not be auto-installed via apt.${RESET}"
+            fi
+        fi
     elif command -v dnf &>/dev/null; then
         if ! "$PYTHON_BIN" -c "import venv, ensurepip" &>/dev/null; then
             sudo dnf install -y python3-devel gcc mesa-libGL libxkbcommon-x11 xcb-util-cursor python3-tkinter || true
@@ -138,12 +151,23 @@ if [[ "$OSTYPE" == "linux"* ]]; then
         if ! "$PYTHON_BIN" -c "import tkinter" &>/dev/null; then
             sudo dnf install -y python3-tkinter || true
         fi
+        if ! command -v clamscan &>/dev/null; then
+            MEM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo "0")
+            if [ "$MEM_KB" -lt 3932160 ]; then
+                sudo dnf install -y clamav clamav-update || true
+            else
+                sudo dnf install -y clamav clamd clamav-update || sudo dnf install -y clamav clamav-update || true
+            fi
+        fi
     elif command -v pacman &>/dev/null; then
         if ! "$PYTHON_BIN" -c "import venv, ensurepip" &>/dev/null; then
             sudo pacman -S --noconfirm --needed base-devel libxkbcommon-x11 xcb-util-cursor tk || true
         fi
         if ! "$PYTHON_BIN" -c "import tkinter" &>/dev/null; then
             sudo pacman -S --noconfirm --needed tk || true
+        fi
+        if ! command -v clamscan &>/dev/null; then
+            sudo pacman -S --noconfirm --needed clamav || true
         fi
     fi
 fi

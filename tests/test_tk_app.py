@@ -329,13 +329,12 @@ def test_tkinter_app_scan_cancelled_report():
     cancelled_report.cancelled = True
     app.event_queue.put(("scan_done", cancelled_report))
 
-
     app._poll_event_queue()
 
     assert app.is_scanning is False
     app.progressbar.stop.assert_called_once()
     app.lbl_progress.config.assert_called_with(text="Scan cancelled.")
-    app._show_info.assert_called_once()
+    app._show_info.assert_not_called()
 
 
 def test_tkinter_app_double_launch_protection():
@@ -415,6 +414,41 @@ def test_tkinter_app_log_buffer_memory_bounding():
     app.txt_log.delete.assert_called_with("1.0", "50.0")
 
 
+def test_tkinter_app_missing_engine_scan_guard():
+    """Validates that trying to scan without clamscan displays an informative error dialog."""
+    mock_root = MagicMock()
+    app, _, _, _, _ = _create_test_app(mock_root)
+
+    app.detector.get_clamscan_path.return_value = None
+    app.detector.check_daemon_socket.return_value = (False, "Offline")
+
+    with patch.object(app, "_show_error") as mock_err:
+        app._launch_scan(["/tmp"], "Test Scan")
+        assert app.is_scanning is False
+        mock_err.assert_called_once()
+        assert "ClamAV Engine Required" in mock_err.call_args[0][0]
+
+
+def test_tkinter_app_scan_error_report():
+    """Validates that scan errors are reported as errors rather than false clean scans."""
+    mock_root = MagicMock()
+    app, _, _, _, _ = _create_test_app(mock_root)
+
+    err_report = ScanReport("Quick Scan")
+    err_report.errors_count = 1
+    err_report.summary_text = "Error: clamscan executable not found."
+    app.event_queue.put(("scan_done", err_report))
+
+    with patch.object(app, "_show_error") as mock_err, patch.object(
+        app, "_show_info"
+    ) as mock_info:
+        app._poll_event_queue()
+        assert app.is_scanning is False
+        mock_err.assert_called_once()
+        mock_info.assert_not_called()
+        assert "Scan Error" in mock_err.call_args[0][0]
+
+
 if __name__ == "__main__":
     print("\n=== Running test_tk_app.py test suite ===")
     test_run_tkinter_app_when_tk_none()
@@ -453,6 +487,10 @@ if __name__ == "__main__":
     print("  [PASS] test_tkinter_app_custom_scan_file_browser")
     test_tkinter_app_log_buffer_memory_bounding()
     print("  [PASS] test_tkinter_app_log_buffer_memory_bounding")
-    print("All 18 Tkinter Lite tests passed successfully!\n")
+    test_tkinter_app_missing_engine_scan_guard()
+    print("  [PASS] test_tkinter_app_missing_engine_scan_guard")
+    test_tkinter_app_scan_error_report()
+    print("  [PASS] test_tkinter_app_scan_error_report")
+    print("All 20 Tkinter Lite tests passed successfully!\n")
 
 

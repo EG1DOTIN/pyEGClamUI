@@ -244,9 +244,98 @@ class SystemDetector:
         except (socket.timeout, ConnectionRefusedError, OSError):
             return False
 
+    def is_64bit(self) -> bool:
+        """Returns True if both pointer size and CPU machine architecture are strictly 64-bit."""
+        arch = self.arch.lower().strip()
+        is_pointer_64 = sys.maxsize > (2**32)
+        legacy_archs = {"i386", "i486", "i586", "i686", "x86", "armv6", "armv6l", "armv7", "armv7l", "armv7a", "armv7b", "armhf"}
+        is_legacy = arch in legacy_archs or any(leg in arch for leg in ("i386", "i486", "i586", "i686", "armv7", "armv6"))
+        return is_pointer_64 and not is_legacy
+
+    def get_total_ram_bytes(self) -> int:
+        """Returns total physical system RAM in bytes."""
+        try:
+            import psutil
+            return int(psutil.virtual_memory().total)
+        except Exception:
+            pass
+        if self.os_type.startswith("linux") and os.path.isfile("/proc/meminfo"):
+            try:
+                with open("/proc/meminfo", "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.startswith("MemTotal:"):
+                            return int(line.split()[1]) * 1024
+            except Exception:
+                pass
+        if self.os_type == "darwin":
+            try:
+                res = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, check=True)
+                return int(res.stdout.strip())
+            except Exception:
+                pass
+        if self.os_type == "win32":
+            try:
+                import ctypes
+                class MemoryStatusEx(ctypes.Structure):
+                    _fields_ = [
+                        ("dwLength", ctypes.c_ulong),
+                        ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong),
+                        ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong),
+                        ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong),
+                        ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                    ]
+                stat = MemoryStatusEx()
+                stat.dwLength = ctypes.sizeof(MemoryStatusEx)
+                if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                    return int(stat.ullTotalPhys)
+            except Exception:
+                pass
+        return (8 if self.is_64bit() else 2) * 1024 * 1024 * 1024
+
+    def has_virus_signatures(self) -> bool:
+        """Checks whether valid ClamAV virus signature databases (.cvd, .cld) are present."""
+        dirs = [
+            Path.home() / ".local" / "share" / "pyegclamui" / "database",
+        ]
+        if self.os_type == "win32":
+            dirs.extend([
+                Path("C:/Program Files/ClamAV/database"),
+                Path("C:/Program Files (x86)/ClamAV/database"),
+                Path("C:/ProgramData/ClamAV/db"),
+            ])
+            val = os.getenv("LOCALAPPDATA")
+            if val and val.strip():
+                dirs.append(Path(val) / "ClamAV" / "db")
+                dirs.append(Path(val) / "pyegclamui" / "database")
+        elif self.os_type == "darwin":
+            dirs.extend([
+                Path("/opt/homebrew/var/lib/clamav"),
+                Path("/usr/local/var/lib/clamav"),
+                Path("/var/lib/clamav"),
+            ])
+        else:
+            dirs.extend([
+                Path("/var/lib/clamav"),
+                Path("/usr/local/share/clamav"),
+                Path("/var/clamav"),
+            ])
+        for d in dirs:
+            if d.is_dir():
+                try:
+                    for f in d.iterdir():
+                        if f.is_file() and f.suffix.lower() in (".cvd", ".cld") and f.stat().st_size > 1000:
+                            return True
+                except (PermissionError, OSError):
+                    continue
+        return False
+
     def detect_package_manager(self) -> Optional[str]:
         """Detects available OS package manager."""
-        for pm in ["winget", "apt", "dnf", "pacman", "brew"]:
+        for pm in ["winget", "apt", "dnf", "pacman", "apk", "zypper", "brew"]:
             if shutil.which(pm):
                 return pm
         return None
@@ -727,26 +816,49 @@ class ClamAVProvisioner:
                 shutil.which("sudo") is not None
                 and run_hidden_process(["sudo", "-n", "true"], capture_output=True).returncode == 0
             )
+            is_low_spec = (not self.detector.is_64bit()) or (self.detector.get_total_ram_bytes() < 3.75 * 1024 * 1024 * 1024)
+            if is_low_spec:
+                self.logger.info("Low-RAM or 32-bit system detected. Provisioning lightweight standalone ClamAV...")
+
             if pm == "apt":
-                self.logger.info("Installing ClamAV on Debian/Ubuntu...")
-                if can_passwordless:
-                    run_hidden_process(["sudo", "apt-get", "update"], capture_output=True)
-                    run_hidden_process(["sudo", "apt-get", "install", "-y", "clamav", "clamav-daemon"], capture_output=not self.logger.verbose)
-                elif sys.stdin.isatty() and shutil.which("sudo"):
-                    subprocess.run(["sudo", "apt-get", "update"])
-                    subprocess.run(["sudo", "apt-get", "install", "-y", "clamav", "clamav-daemon"])
-                else:
-                    self.logger.warn("Sudo privileges needed to install ClamAV. Run:")
-                    self.logger.warn("  sudo apt-get update && sudo apt-get install -y clamav clamav-daemon")
+                self.logger.info("Installing ClamAV on Debian/Ubuntu/antiX...")
+                package_attempts = (
+                    [["clamav", "clamav-freshclam"], ["clamav"]]
+                    if is_low_spec
+                    else [["clamav", "clamav-daemon"], ["clamav", "clamav-freshclam"], ["clamav"]]
+                )
+                for pkgs in package_attempts:
+                    self.logger.info(f"Attempting apt installation ({' '.join(pkgs)})...")
+                    if can_passwordless:
+                        run_hidden_process(["sudo", "apt-get", "update"], capture_output=True)
+                        run_hidden_process(["sudo", "apt-get", "install", "-y"] + pkgs, capture_output=not self.logger.verbose)
+                    elif sys.stdin.isatty() and shutil.which("sudo"):
+                        subprocess.run(["sudo", "apt-get", "update"])
+                        subprocess.run(["sudo", "apt-get", "install", "-y"] + pkgs)
+                    if self.detector.get_clamscan_path():
+                        break
+
+                if not self.detector.get_clamscan_path():
+                    self.logger.warn("Sudo privileges needed or package installation failed. Run manually:")
+                    self.logger.warn("  sudo apt-get update && sudo apt-get install -y clamav")
             elif pm == "dnf":
                 self.logger.info("Installing ClamAV on Fedora/RHEL...")
-                if can_passwordless:
-                    run_hidden_process(["sudo", "dnf", "install", "-y", "clamav", "clamd", "clamav-update"], capture_output=not self.logger.verbose)
-                elif sys.stdin.isatty() and shutil.which("sudo"):
-                    subprocess.run(["sudo", "dnf", "install", "-y", "clamav", "clamd", "clamav-update"])
-                else:
+                package_attempts = (
+                    [["clamav", "clamav-update"]]
+                    if is_low_spec
+                    else [["clamav", "clamd", "clamav-update"], ["clamav", "clamav-update"]]
+                )
+                for pkgs in package_attempts:
+                    if can_passwordless:
+                        run_hidden_process(["sudo", "dnf", "install", "-y"] + pkgs, capture_output=not self.logger.verbose)
+                    elif sys.stdin.isatty() and shutil.which("sudo"):
+                        subprocess.run(["sudo", "dnf", "install", "-y"] + pkgs)
+                    if self.detector.get_clamscan_path():
+                        break
+
+                if not self.detector.get_clamscan_path():
                     self.logger.warn("Sudo privileges needed to install ClamAV. Run:")
-                    self.logger.warn("  sudo dnf install -y clamav clamd clamav-update")
+                    self.logger.warn("  sudo dnf install -y clamav clamav-update")
             elif pm == "pacman":
                 self.logger.info("Installing ClamAV on Arch Linux...")
                 if can_passwordless:
@@ -756,11 +868,43 @@ class ClamAVProvisioner:
                 else:
                     self.logger.warn("Sudo privileges needed to install ClamAV. Run:")
                     self.logger.warn("  sudo pacman -S --noconfirm clamav")
+            elif pm == "apk":
+                self.logger.info("Installing ClamAV on Alpine Linux...")
+                if can_passwordless:
+                    run_hidden_process(["sudo", "apk", "add", "--no-cache", "clamav", "freshclam"], capture_output=not self.logger.verbose)
+                elif sys.stdin.isatty() and shutil.which("sudo"):
+                    subprocess.run(["sudo", "apk", "add", "--no-cache", "clamav", "freshclam"])
+                else:
+                    self.logger.warn("Sudo privileges needed to install ClamAV on Alpine. Run:")
+                    self.logger.warn("  sudo apk add --no-cache clamav freshclam")
+            elif pm == "zypper":
+                self.logger.info("Installing ClamAV on openSUSE...")
+                if can_passwordless:
+                    run_hidden_process(["sudo", "zypper", "install", "-y", "clamav"], capture_output=not self.logger.verbose)
+                elif sys.stdin.isatty() and shutil.which("sudo"):
+                    subprocess.run(["sudo", "zypper", "install", "-y", "clamav"])
+                else:
+                    self.logger.warn("Sudo privileges needed to install ClamAV on openSUSE. Run:")
+                    self.logger.warn("  sudo zypper install -y clamav")
 
         elif self.detector.os_type == "darwin":
             if shutil.which("brew"):
                 self.logger.info("Installing ClamAV via Homebrew...")
                 run_hidden_process(["brew", "install", "clamav"])
+                try:
+                    prefix_res = run_hidden_process(["brew", "--prefix"], capture_output=True)
+                    prefix = prefix_res.stdout.strip() if prefix_res.returncode == 0 else "/usr/local"
+                    etc_dir = Path(prefix) / "etc" / "clamav"
+                    if etc_dir.is_dir():
+                        for conf in ["freshclam", "clamd"]:
+                            sample = etc_dir / f"{conf}.conf.sample"
+                            target = etc_dir / f"{conf}.conf"
+                            if sample.is_file() and not target.is_file():
+                                content = sample.read_text(encoding="utf-8", errors="ignore")
+                                content = content.replace("Example\n", "# Example\n")
+                                target.write_text(content, encoding="utf-8")
+                except Exception:
+                    pass
             else:
                 self.logger.warn("Homebrew not found. Please install Homebrew or ClamAV manually.")
 
@@ -943,16 +1087,41 @@ class ClamAVProvisioner:
             self.logger.warn("freshclam executable not found. Skipping signature update.")
             return False
 
-        self.logger.info("Updating virus signatures via freshclam (this may take a moment)...")
-        cmd = [str(fc_path)]
+        self.logger.info("Updating virus signatures via freshclam (this may take a few minutes)...")
+        can_sudo = (
+            shutil.which("sudo") is not None
+            and run_hidden_process(["sudo", "-n", "true"], capture_output=True).returncode == 0
+        )
+        if can_sudo and sys.platform.startswith("linux"):
+            run_hidden_process(["sudo", "systemctl", "stop", "clamav-freshclam"], capture_output=True)
+            res = run_hidden_process(["sudo", str(fc_path)], capture_output=not self.logger.verbose)
+            run_hidden_process(["sudo", "systemctl", "start", "clamav-freshclam"], capture_output=True)
+            if res.returncode in (0, 1) or self.detector.has_virus_signatures():
+                self.logger.ok("Virus definitions successfully updated via sudo freshclam.")
+                return True
+        elif sys.stdin.isatty() and shutil.which("sudo") and sys.platform.startswith("linux"):
+            self.logger.info("Executing sudo freshclam...")
+            subprocess.run(["sudo", "systemctl", "stop", "clamav-freshclam"], capture_output=True)
+            res = subprocess.run(["sudo", str(fc_path)])
+            subprocess.run(["sudo", "systemctl", "start", "clamav-freshclam"], capture_output=True)
+            if res.returncode in (0, 1) or self.detector.has_virus_signatures():
+                self.logger.ok("Virus definitions successfully updated.")
+                return True
+
+        # Non-root fallback or Windows/macOS:
+        user_db_dir = Path.home() / ".local" / "share" / "pyegclamui" / "database" if sys.platform != "win32" else (Path(os.environ.get("LOCALAPPDATA", "")) / "pyegclamui" / "database")
+        user_db_dir.mkdir(parents=True, exist_ok=True)
+        user_conf = user_db_dir.parent / "freshclam.conf"
+        user_conf.write_text(f"DatabaseMirror database.clamav.net\nDatabaseDirectory {user_db_dir.as_posix()}\n", encoding="utf-8")
+        cmd = [str(fc_path), f"--config-file={user_conf}", "--stdout"]
         self.logger.exec(" ".join(cmd))
         res = run_hidden_process(cmd, capture_output=not self.logger.verbose)
-        if res.returncode == 0:
-            self.logger.ok("Virus definitions successfully updated.")
+        if res.returncode in (0, 1) or self.detector.has_virus_signatures():
+            self.logger.ok("Virus definitions successfully initialized.")
             return True
         else:
-            self.logger.info("freshclam completed (database up to date or service locked).")
-            return True
+            self.logger.warn(f"Notice on freshclam execution (exit code {res.returncode}).")
+            return self.detector.has_virus_signatures()
 
 
 # ------------------------------------------------------------------------------
@@ -1626,13 +1795,40 @@ Examples:
     # Step 4: ClamAV Engine Verification & Setup
     logger.step(4, total_steps, "ClamAV Backend Engine Check")
     if not args.no_clamav:
-        if not detector.get_clamscan_path():
-            logger.info("ClamAV engine not detected.")
-            clam_prov.install_engine()
+        clam_installed = bool(detector.get_clamscan_path())
+        if not clam_installed:
+            logger.info("ClamAV engine not detected. Initiating automatic provisioning...")
+            clam_installed = clam_prov.install_engine()
+
+        if clam_installed:
+            logger.ok(f"ClamAV engine verified at: {detector.get_clamscan_path()}")
+            # Verify virus signatures (VSD)
+            if not detector.has_virus_signatures():
+                logger.info("Virus definitions (VSD) not found on disk. Initializing signature database via freshclam...")
+                clam_prov.update_signatures()
+            else:
+                logger.ok("Virus signature database verified on disk.")
+
+            # Check if clamd daemon should be enabled (only on 64-bit with >= 4.0 GB RAM)
+            is_low_spec = (not detector.is_64bit()) or (detector.get_total_ram_bytes() < 3.75 * 1024 * 1024 * 1024)
+            if is_low_spec:
+                logger.info("Lite Mode (< 4.0GB RAM / 32-bit): Utilizing on-demand clamscan to conserve memory (clamd daemon disabled).")
+            else:
+                if not detector.is_daemon_running():
+                    clam_prov.configure_daemon_service()
         else:
-            # Activate background daemon service if not active
-            if not detector.is_daemon_running():
-                clam_prov.configure_daemon_service()
+            logger.warn("ClamAV antivirus engine could not be automatically installed.")
+            logger.warn("pyEGClamUI GUI and CLI wrappers are installed, but scanning requires ClamAV.")
+            logger.warn("Please install ClamAV manually on your system:")
+            if detector.os_type.startswith("linux"):
+                logger.warn("  Debian / Ubuntu / antiX: sudo apt-get update && sudo apt-get install -y clamav && sudo freshclam")
+                logger.warn("  Fedora / RHEL:           sudo dnf install -y clamav clamav-update && sudo freshclam")
+                logger.warn("  Arch Linux:              sudo pacman -S --noconfirm clamav && sudo freshclam")
+                logger.warn("  Alpine Linux:            sudo apk add --no-cache clamav freshclam && sudo freshclam")
+            elif detector.os_type == "darwin":
+                logger.warn("  macOS (Homebrew):        brew install clamav && freshclam")
+            elif detector.os_type == "win32":
+                logger.warn("  Windows:                 Download MSI from https://www.clamav.net/downloads")
 
     # Step 5: Desktop Shortcuts
     logger.step(5, total_steps, "Configuring Desktop & Application Menu Shortcuts")

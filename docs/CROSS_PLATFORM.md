@@ -71,18 +71,23 @@ graph LR
 
 ## 4. Package Manager & Engine Installation Matrix
 
-| Operating System | Package Manager | Recommended Installation Command | Service Daemon Command |
+| Operating System | Package Manager | Standard / High-RAM Mode (>= 4.0 GB) | Low-RAM / 32-Bit Lite Mode (< 4.0 GB) |
 | :--- | :--- | :--- | :--- |
-| **Windows 10/11** | Windows Package Manager | `winget install Cisco.ClamAV` | Installed as optional Windows Service |
-| **Ubuntu / Debian / Mint** | APT | `sudo apt update && sudo apt install -y clamav clamav-daemon` | `sudo systemctl start clamav-daemon` |
-| **Fedora / RHEL / Alma** | DNF / YUM | `sudo dnf install -y clamav clamd clamav-update` | `sudo systemctl start clamd@scan` |
-| **Arch Linux / Manjaro** | Pacman | `sudo pacman -S clamav` | `sudo systemctl start clamav-daemon` |
-| **openSUSE** | Zypper | `sudo zypper install -y clamav clamav-daemon` | `sudo systemctl start clamav-daemon` |
-| **macOS (Apple Silicon)** | Homebrew | `brew install clamav` | `brew services start clamav` |
-| **macOS (Intel x86_64)** | Homebrew | `brew install clamav` | `brew services start clamav` |
-| **macOS (MacPorts)** | MacPorts | `sudo port install clamav` | Managed via `daemondo` |
+| **Ubuntu / Debian** | APT | `sudo apt update && sudo apt install -y clamav clamav-daemon` | `sudo apt update && sudo apt install -y clamav clamav-freshclam` |
+| **antiX / Minimal Linux** | APT | `sudo apt update && sudo apt install -y clamav` | `sudo apt update && sudo apt install -y clamav` |
+| **Fedora / RHEL / Alma** | DNF / YUM | `sudo dnf install -y clamav clamd clamav-update` | `sudo dnf install -y clamav clamav-update` |
+| **Arch Linux / Manjaro** | Pacman | `sudo pacman -S clamav` | `sudo pacman -S clamav` |
+| **Alpine Linux** | APK | `sudo apk add --no-cache clamav freshclam` | `sudo apk add --no-cache clamav freshclam` |
+| **openSUSE** | Zypper | `sudo zypper install -y clamav clamav-daemon` | `sudo zypper install -y clamav` |
+| **macOS (Homebrew)** | Homebrew | `brew install clamav` | `brew install clamav` |
+| **Windows 10/11** | Winget | `winget install Cisco.ClamAV` | `winget install Cisco.ClamAV` |
 
----
+> [!IMPORTANT]
+> **Initial Virus Database Requirement (`freshclam`)**:
+> Freshly installed ClamAV packages contain **zero** virus signatures. `clamscan` cannot scan until an initial signature download completes. The pyEGClamUI setup engine automatically invokes `freshclam` during installation; on manual setups, initialize the database via:
+> ```bash
+> sudo freshclam   # System database (/var/lib/clamav)
+> ```
 
 ## 5. Linux Desktop Integration Specifics
 
@@ -172,4 +177,21 @@ sudo pacman -S --noconfirm tk
 > pyegclamui --quick             # Trigger automated Quick Scan on launch
 > pyegclamui --path /path/to/scan  # Scan specific file or directory
 > ```
+
+### 7.4 ClamAV Memory Architecture: Standalone `clamscan` vs Resident `clamd` Daemon
+
+According to official ClamAV documentation, the ClamAV backend components interact with system RAM in distinctly different ways:
+
+| Backend Component | Execution Model | Memory Footprint | Recommended System RAM | Best Used For |
+| :--- | :--- | :--- | :--- | :--- |
+| **`clamd` Daemon** | Persistent background service | 1.2 GB – 1.6 GB continuous (spikes to 3.0 GB during DB reload) | 🟢 `>= 4.0 GB RAM` | High-speed multi-threaded scanning on workstations & servers |
+| **`clamscan` CLI** | On-demand transient process | 0 MB resident; loads DB only while active, unloads on exit | 🟢 Any capacity (512 MB – 4.0 GB) | Vintage laptops, 32-bit Linux, lightweight VMs (antiX/Alpine) |
+| **`freshclam`** | Periodic database updater | ~50 MB transient | 🟢 Any capacity | Downloading and applying daily signature delta patches |
+
+> [!NOTE]
+> On systems with **< 4.0 GB of RAM** (or 32-bit OS), **pyEGClamUI automatically operates in Lite Mode**:
+> 1. It installs only the standalone `clamav` package, intentionally avoiding `clamav-daemon`.
+> 2. It avoids the Debian/antiX package hook crash where `clamav-daemon` fails post-install due to missing initial definitions.
+> 3. It protects low-RAM systems from the Linux kernel Out-Of-Memory (OOM) killer terminating background processes.
+
 

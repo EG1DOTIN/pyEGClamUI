@@ -219,6 +219,60 @@ def test_venv_manager_binary_resolution():
 
 
 
+def test_system_detector_has_virus_signatures():
+    """Validates signature database detection when .cvd or .cld files are present."""
+    detector = SystemDetector(PROJECT_ROOT)
+
+    # 1. When no database files exist
+    with patch.object(Path, "is_dir", return_value=False):
+        assert detector.has_virus_signatures() is False
+
+    # 2. When valid .cvd database file exists
+    fake_cvd = MagicMock()
+    fake_cvd.is_file.return_value = True
+    fake_cvd.suffix = ".cvd"
+    fake_cvd.stat.return_value.st_size = 5000000
+
+    with patch.object(Path, "is_dir", return_value=True), patch.object(
+        Path, "iterdir", return_value=[fake_cvd]
+    ):
+        assert detector.has_virus_signatures() is True
+
+
+def test_clamav_provisioner_low_spec_selection_and_fallback():
+    """Validates that low-spec systems select standalone clamav and fallbacks work."""
+    logger = SetupLogger()
+    detector = SystemDetector(PROJECT_ROOT)
+    detector.os_type = "linux"
+    prov = setup_mod.ClamAVProvisioner(detector, logger)
+
+    # 1. Low-RAM system (< 3.75 GB RAM) prefers standalone clamav
+    executed_cmds = []
+
+    def mock_run(cmd, **kwargs):
+        executed_cmds.append(cmd)
+        m = MagicMock()
+        m.returncode = 0
+        return m
+
+    def mock_get_path():
+        return Path("/usr/bin/clamscan") if executed_cmds else None
+
+    with patch.object(detector, "get_clamscan_path", side_effect=mock_get_path), \
+         patch.object(detector, "detect_package_manager", return_value="apt"), \
+         patch.object(detector, "is_64bit", return_value=False), \
+         patch.object(detector, "get_total_ram_bytes", return_value=int(1.5 * 1024 * 1024 * 1024)), \
+         patch("setup.run_hidden_process", side_effect=mock_run), \
+         patch("shutil.which", return_value="/usr/bin/sudo"):
+
+        res = prov.install_engine()
+        assert res is True
+        # Check that executed commands did NOT attempt clamav-daemon
+        flat = " ".join(" ".join(c) for c in executed_cmds)
+        assert "clamav-daemon" not in flat
+        assert "clamav" in flat
+
+
 if __name__ == "__main__":
     print("\n=== Running test_setup_edge_cases.py test suite ===")
     test_system_detector_executable_discovery()
@@ -237,5 +291,9 @@ if __name__ == "__main__":
     print("  [PASS] test_ensure_linux_prerequisites_non_linux_and_no_pm")
     test_venv_manager_binary_resolution()
     print("  [PASS] test_venv_manager_binary_resolution")
-    print("All 8 setup edge case tests passed successfully!\n")
+    test_system_detector_has_virus_signatures()
+    print("  [PASS] test_system_detector_has_virus_signatures")
+    test_clamav_provisioner_low_spec_selection_and_fallback()
+    print("  [PASS] test_clamav_provisioner_low_spec_selection_and_fallback")
+    print("All 10 setup edge case tests passed successfully!\n")
 
