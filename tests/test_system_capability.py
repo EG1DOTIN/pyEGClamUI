@@ -240,13 +240,17 @@ def test_windows_ctypes_ram_query():
             assert ram == 16 * 1024 * 1024 * 1024
 
     # Windows exception fallback to safe default
-    with patch.dict(sys.modules, {"psutil": None}), patch(
-        "sys.platform", "win32"
-    ), patch(
-        "pyegclamui.core.system_capability.is_64bit_architecture", return_value=True
-    ):
-        ram = get_total_ram_bytes()
-        assert ram == 8 * 1024 * 1024 * 1024
+    mock_failing_k32 = MagicMock()
+    mock_failing_k32.GlobalMemoryStatusEx.side_effect = OSError("Query failed")
+    mock_failing_windll = type("WinDLL", (), {"kernel32": mock_failing_k32})()
+
+    with patch.dict(sys.modules, {"psutil": None}), patch("sys.platform", "win32"):
+        with patch.object(ctypes, "windll", mock_failing_windll, create=True), patch(
+            "pyegclamui.core.system_capability.is_64bit_architecture", return_value=True
+        ):
+            ram = get_total_ram_bytes()
+            assert ram == 8 * 1024 * 1024 * 1024
+
 
 
 
