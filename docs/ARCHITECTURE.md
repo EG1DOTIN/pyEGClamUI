@@ -68,13 +68,15 @@ graph TD
 
 | Layer | Subsystem Component | Source Implementation | Key Responsibilities |
 | :--- | :--- | :--- | :--- |
-| **Presentation** | `MainWindow` | [`../src/pyegclamui/gui/main_window.py`](../src/pyegclamui/gui/main_window.py) | 5-tab dashboard, live status evaluations, action routing |
-| **Presentation** | `ScanDialog` | [`../src/pyegclamui/gui/scan_dialog.py`](../src/pyegclamui/gui/scan_dialog.py) | Live telemetry dialog, file ticker, threat table |
-| **Presentation** | `SetupDialog` | [`../src/pyegclamui/gui/setup_dialog.py`](../src/pyegclamui/gui/setup_dialog.py) | Universal engine installer wizard & folder linker |
-| **Presentation** | `SystemTrayManager` | [`../src/pyegclamui/gui/tray.py`](../src/pyegclamui/gui/tray.py) | Background daemon, menu actions, balloon notifications |
-| **Presentation** | `IconFactory` | [`../src/pyegclamui/gui/icons.py`](../src/pyegclamui/gui/icons.py) | High-DPI procedural vector icons & 3-tier status shields |
-| **Presentation** | `PlatformTheme` | [`../src/pyegclamui/gui/platform_theme.py`](../src/pyegclamui/gui/platform_theme.py) | Native OS dark window titlebar (Windows DWM, Linux, macOS) |
-| **Presentation** | `Theme & Styles` | [`../src/pyegclamui/gui/styles.py`](../src/pyegclamui/gui/styles.py) | Centralized QSS dark theme stylesheets & palette tokens |
+| **Presentation (Tier 1)** | `MainWindow` | [`../src/pyegclamui/gui/main_window.py`](../src/pyegclamui/gui/main_window.py) | 5-tab dashboard, live status evaluations, action routing |
+| **Presentation (Tier 1)** | `ScanDialog` | [`../src/pyegclamui/gui/scan_dialog.py`](../src/pyegclamui/gui/scan_dialog.py) | Live telemetry dialog, file ticker, threat table |
+| **Presentation (Tier 1)** | `SetupDialog` | [`../src/pyegclamui/gui/setup_dialog.py`](../src/pyegclamui/gui/setup_dialog.py) | Universal engine installer wizard & folder linker |
+| **Presentation (Tier 1)** | `SystemTrayManager` | [`../src/pyegclamui/gui/tray.py`](../src/pyegclamui/gui/tray.py) | Background daemon, menu actions, balloon notifications |
+| **Presentation (Tier 1)** | `IconFactory` | [`../src/pyegclamui/gui/icons.py`](../src/pyegclamui/gui/icons.py) | High-DPI procedural vector icons & 3-tier status shields |
+| **Presentation (Tier 1)** | `PlatformTheme` | [`../src/pyegclamui/gui/platform_theme.py`](../src/pyegclamui/gui/platform_theme.py) | Native OS dark window titlebar (Windows DWM, Linux, macOS) |
+| **Presentation (Tier 1)** | `Theme & Styles` | [`../src/pyegclamui/gui/styles.py`](../src/pyegclamui/gui/styles.py) | Centralized QSS dark theme stylesheets & palette tokens |
+| **Presentation (Tier 2)** | `TkinterApp` | [`../src/pyegclamui/gui/tk_app.py`](../src/pyegclamui/gui/tk_app.py) | pyEGClamUI Lite single-window dashboard (<18MB RAM) for 32-bit & low-spec systems |
+| **Core Abstraction** | `SystemCapability` | [`../src/pyegclamui/core/system_capability.py`](../src/pyegclamui/core/system_capability.py) | Hardware capability inspector (RAM, bitness) & deterministic GUI tier assignment |
 | **Core Abstraction** | `ClamEngineDetector` | [`../src/pyegclamui/core/detector.py`](../src/pyegclamui/core/detector.py) | Executable auto-discovery & socket liveness probing |
 | **Core Abstraction** | `ClamScanner` | [`../src/pyegclamui/core/scanner.py`](../src/pyegclamui/core/scanner.py) | Subprocess scan execution, line parsing, result reports |
 | **Core Abstraction** | `ClamDaemonClient` | [`../src/pyegclamui/core/daemon.py`](../src/pyegclamui/core/daemon.py) | `clamd` Unix domain & TCP socket client with `INSTREAM` |
@@ -97,11 +99,13 @@ A primary requirement of pyEGClamUI is a **strictly non-blocking main GUI thread
 
 | Thread | Technology | Managed By | Responsibility | UI Communication Mechanism |
 | :--- | :--- | :--- | :--- | :--- |
-| **Main GUI Thread** | Qt Event Loop | `QApplication` | Window rendering, widgets, animations, button clicks, dialog modals | Direct UI manipulation |
-| **Active Scan Worker** | `QThread` | `ScanDialog` | Spawns `clamscan` or connects to `clamd`, parses stdout line-by-line | Qt Signals (`Signal(int)`, `Signal(str)`, `Signal(dict)`) |
-| **Database Update Worker** | `threading.Thread` | `MainWindow` | Spawns `freshclam` and validates return codes & signature dates | Callbacks wrapped with thread-safe UI updates |
-| **Watchdog Observer** | `threading.Thread` | `watchdog.Observer` | Monitors kernel filesystem events (inotify on Linux, ReadDirectoryChangesW on Windows, FSEvents on macOS) | Internal event queue buffer |
-| **Real-Time Guard Worker** | `threading.Thread` | `RealTimeGuard` | Debounces write bursts, verifies file lock release, invokes fast scan | Qt System Tray balloon notifications |
+| **Tier 1 Qt GUI Thread** | Qt Event Loop | `QApplication` | Window rendering, widgets, animations, button clicks, dialog modals | Direct UI manipulation |
+| **Tier 2 Tk GUI Thread** | Tkinter Main Loop | `TkinterApp` (`root.mainloop()`) | Single-window Lite rendering, live log tags, treeview updates | Periodic polling (`root.after(50, ...)`) |
+| **Active Scan Worker (Qt)** | `QThread` | `ScanDialog` | Spawns `clamscan` or connects to `clamd`, parses stdout line-by-line | Qt Signals (`Signal(int)`, `Signal(str)`, `Signal(dict)`) |
+| **Active Scan Worker (Tk)** | `threading.Thread` | `TkinterApp` | Spawns background scan, parses stream, handles remediation | Thread-safe FIFO queue (`queue.Queue`) |
+| **Database Update Worker** | `threading.Thread` | `MainWindow` / `TkinterApp` | Spawns `freshclam` and validates return codes & signature dates | Callbacks / Queue updates |
+| **Watchdog Observer** | `threading.Thread` | `watchdog.Observer` | Monitors kernel filesystem events (inotify, ReadDirectoryChangesW, FSEvents) | Internal event queue buffer |
+| **Real-Time Guard Worker** | `threading.Thread` | `RealTimeGuard` | Debounces write bursts, verifies file lock release, invokes fast scan | Desktop notifications & alerts |
 
 ---
 

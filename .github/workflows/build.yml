@@ -60,11 +60,12 @@ jobs:
         run: |
           choco install innosetup --no-progress
 
-      - name: Install Linux system dependencies (Qt runtime)
+      - name: Install Linux system dependencies (Qt runtime & Tkinter)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            python3-tk \
             libgl1 \
             libglx-mesa0 \
             libegl1 \

@@ -68,16 +68,19 @@ class ClamScanner:
     def get_system_drives(self) -> List[str]:
         """Cross-platform drive partition enumeration using psutil."""
         drives = []
-        for part in psutil.disk_partitions(all=False):
-            mount = part.mountpoint
-            if sys.platform == "win32":
-                if part.fstype and not mount.startswith(("\\\\", "//")):
-                    drives.append(mount)
-            else:
-                if mount in ["/", "/home"] or mount.startswith("/media/") or mount.startswith("/Volumes/"):
-                    if Path(mount).is_dir():
+        try:
+            for part in psutil.disk_partitions(all=False):
+                mount = part.mountpoint
+                if sys.platform == "win32":
+                    if part.fstype and not mount.startswith(("\\\\", "//")):
                         drives.append(mount)
-        return list(dict.fromkeys(drives)) or ["/"]
+                else:
+                    if mount in ["/", "/home"] or mount.startswith("/media/") or mount.startswith("/Volumes/"):
+                        if Path(mount).is_dir():
+                            drives.append(mount)
+        except Exception:
+            pass
+        return list(dict.fromkeys(drives)) or (["C:\\"] if sys.platform == "win32" else ["/"])
 
     def get_quick_scan_paths(self) -> List[str]:
         """Returns standard high-risk user directories for fast scanning."""
@@ -416,11 +419,15 @@ class ClamScanner:
                         on_status=on_status,
                     )
                 report.summary_text = f"Error: {fnf}"
+                report.errors_count = 1
+                report.errors_list.append({"error": str(fnf)})
                 report.end_time = datetime.now()
                 self.is_running = False
                 return report
             except Exception as e:
                 report.summary_text = f"Error: {e}"
+                report.errors_count = 1
+                report.errors_list.append({"error": str(e)})
                 report.end_time = datetime.now()
                 self.is_running = False
                 return report
@@ -438,6 +445,8 @@ class ClamScanner:
             )
         except Exception as e:
             report.summary_text = f"Failed to start scanner process: {e}"
+            report.errors_count = 1
+            report.errors_list.append({"error": f"Failed to start scanner process: {e}"})
             report.end_time = datetime.now()
             self.is_running = False
             return report

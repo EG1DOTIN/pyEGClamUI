@@ -227,6 +227,10 @@ class ScanDialog(QDialog):
         if report.cancelled:
             self.title_label.setText("Scan Cancelled")
             self.title_label.setStyleSheet("color: #eab308;")
+        elif report.errors_count > 0 or (report.summary_text and report.summary_text.startswith("Error")):
+            self.title_label.setText("Scan Failed - Engine Error")
+            self.title_label.setStyleSheet("color: #ef4444;")
+            self.current_file_label.setText(report.summary_text)
         elif report.threats_found > 0:
             self.title_label.setText(f"Scan Finished - {report.threats_found} Threat(s) Found!")
             self.title_label.setStyleSheet("color: #ef4444;")

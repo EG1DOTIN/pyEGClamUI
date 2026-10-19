@@ -56,6 +56,16 @@ graph LR
     S5 --> FoundSock
 ```
 
+### 1.3 Virus Signature Database Discovery (`has_virus_signatures`)
+
+Before scanning can commence, the engine verifies that ClamAV signature databases (`.cvd` or `.cld` files, such as `main.cvd`, `daily.cld`, `bytecode.cvd`) actually exist on disk:
+
+* **Linux**: `/var/lib/clamav`, `/usr/local/share/clamav`, `/var/clamav`, and `~/.local/share/pyegclamui/database`
+* **macOS**: `/opt/homebrew/var/lib/clamav`, `/usr/local/var/lib/clamav`, `/var/lib/clamav`, and `~/Library/Application Support/pyEGClamUI/database`
+* **Windows**: `C:\Program Files\ClamAV\database`, `C:\ProgramData\ClamAV\db`, and `%LOCALAPPDATA%\pyegclamui\database`
+
+If executables exist but no `.cvd`/`.cld` files are found, `detector.has_virus_signatures()` returns `False`. The setup engine automatically invokes `freshclam` to populate the initial database, and both GUI tiers alert the user if signatures require downloading.
+
 ---
 
 ## 2. ClamScanner Engine (`scanner.py`)
@@ -229,4 +239,56 @@ Provides separated logging streams for errors (`pyegclamui`) and operational rep
 * **Dedicated Deep-Dive**: [`TELEMETRY_LOGIC.md`](TELEMETRY_LOGIC.md)
 
 Implements 100% opt-in diagnostic reporting to Firebase Firestore REST v1 via standard `urllib.request`, granular consent checkboxes, anonymous `GuestXXXXXXXX` profile generation, and live payload preview modal dialogs.
+
+---
+
+## 9. ClamD Service Management (`service_manager.py`)
+
+* **Source File**: [`../src/pyegclamui/core/service_manager.py`](../src/pyegclamui/core/service_manager.py) (`ServiceManager`)
+
+The service manager orchestrates Windows ClamD service registration and background daemon management with hidden, non-intrusive execution (`SW_HIDE` / `-WindowStyle Hidden`). It provisions `clamd.conf`, starts the Windows service via `sc.exe start clamd`, and verifies socket availability with a 15-second polling loop.
+
+---
+
+## 10. Hardware Capability Inspector (`system_capability.py`)
+
+
+* **Source File**: [`../src/pyegclamui/core/system_capability.py`](../src/pyegclamui/core/system_capability.py) (`is_64bit_architecture`, `get_total_ram_bytes`, `determine_gui_tier`, `get_system_specs`)
+
+The hardware capability inspector evaluates host machine specifications—specifically CPU instruction architecture, pointer bit-width, and total physical RAM—against deterministic thresholds to route execution to the optimal GUI tier without trial-and-error library loading.
+
+### 10.1 Capability Decision Flowchart
+
+```mermaid
+flowchart TD
+    Start(["Launch pyEGClamUI"]) --> OverrideCheck{"CLI Flag Specified?<br/>(--ui, --tier, --lite, --qt)"}
+    OverrideCheck -- "Yes" --> ApplyOverride["Apply Explicit User Override"]
+    ApplyOverride --> TierSelected(["Launch Selected Tier"])
+
+    OverrideCheck -- "No" --> ArchCheck{"Evaluate Architecture:<br/>Pointer > 32-bit AND<br/>Machine not in LEGACY_ARCHS?"}
+    ArchCheck -- "No (32-Bit x86 / ARM)" --> Tier2(["Tier 2: pyEGClamUI Lite (Tkinter)"])
+
+    ArchCheck -- "Yes (64-Bit)" --> RamCheck{"Query Physical RAM:<br/>psutil / meminfo / sysctl / GlobalMemoryStatusEx"}
+    RamCheck --> Threshold{"Total RAM >= 3.75 GB?<br/>(Calibrated for 4GB RAM + VRAM reserve)"}
+
+    Threshold -- "Yes (>= 4.0 GB)" --> Tier1(["Tier 1: Modern Suite (PySide6 / Qt6)"])
+    Threshold -- "No (< 4.0 GB)" --> Tier2
+```
+
+### 10.2 Architectural Tier Comparison
+
+| Feature / Metric | ⚡ Tier 1: Modern Qt6 Suite | 🛡️ Tier 2: pyEGClamUI Lite |
+| :--- | :--- | :--- |
+| **Target Architecture** | 🟢 64-Bit AMD64, x86_64, AArch64 | 🟢 32-Bit (i386/i686/ARM) & 64-Bit |
+| **Minimum Physical RAM** | 🟢 4.0 GB (Calibrated 3.75 GB) | 🟢 512 MB – 3.75 GB |
+| **GUI Framework** | PySide6 / Qt6 | Python Standard Library Tkinter (`ttk`) |
+| **Memory Footprint** | ~120 MB – 180 MB RSS | ~25 MB – 45 MB RSS |
+| **Native Look & Feel** | Modern dark theme, custom widgets | Native OS Tk/TTK styling (`clam`/`alt`) |
+| **Scan Capabilities** | ⚡ Quick, Full, Custom, Memory | ⚡ Quick, Full, Custom |
+| **Quarantine Operations** | 🛡️ Interactive table, restore, purge | 🛡️ Treeview table, restore, purge |
+| **Definition Updates** | 🔄 Threaded freshclam worker | 🔄 Threaded freshclam worker |
+
+> [!NOTE]
+> Setting the physical RAM threshold to `3.75 GB` (`MIN_RAM_BYTES_TIER1 = int(3.75 * 1024**3)`) guarantees that systems with 4.0 GB of installed physical RAM—which report between 3.80 GB and 3.92 GB to the operating system due to BIOS tables and integrated GPU reservations—are correctly qualified for the modern Tier 1 interface.
+
 

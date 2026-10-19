@@ -682,19 +682,59 @@ class MainWindow(QMainWindow):
 
         return card
 
+    def _ensure_engine_ready(self) -> bool:
+        """Validates that ClamAV engine and virus signatures are present before scanning."""
+        clamscan_path = self.detector.get_clamscan_path()
+        daemon_online, _ = self.detector.check_daemon_socket()
+        if not clamscan_path and not daemon_online:
+            QMessageBox.critical(
+                self,
+                "ClamAV Engine Required",
+                "ClamAV antivirus engine is not installed on this system.\n\n"
+                "To enable scanning, please install ClamAV:\n"
+                "  • Debian/Ubuntu/antiX: sudo apt update && sudo apt install -y clamav && sudo freshclam\n"
+                "  • Fedora/RHEL:         sudo dnf install -y clamav clamav-update && sudo freshclam\n"
+                "  • Arch Linux:          sudo pacman -S --noconfirm clamav && sudo freshclam\n"
+                "  • macOS:               brew install clamav && freshclam\n"
+                "  • Windows:             Install from https://www.clamav.net/downloads"
+            )
+            return False
+
+        if not self.detector.has_virus_signatures():
+            reply = QMessageBox.question(
+                self,
+                "Signatures Missing",
+                "ClamAV engine is installed, but virus definitions (VSD) have not been downloaded yet.\n\n"
+                "Would you like to open the Update tab and download signatures now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                self.tabs.setCurrentIndex(1)  # Updates tab
+                self.on_update_clicked()
+            return False
+
+        return True
+
     def on_quick_scan_clicked(self):
+        if not self._ensure_engine_ready():
+            return
         targets = self.scanner.get_quick_scan_paths()
         dlg = ScanDialog(self, ScanType.QUICK_SCAN, targets)
         dlg.exec()
         self.refresh_quarantine_table()
 
     def on_full_scan_clicked(self):
+        if not self._ensure_engine_ready():
+            return
         targets = self.scanner.get_system_drives()
         dlg = ScanDialog(self, ScanType.FULL_SCAN, targets)
         dlg.exec()
         self.refresh_quarantine_table()
 
     def on_custom_scan_clicked(self):
+        if not self._ensure_engine_ready():
+            return
         folder = QFileDialog.getExistingDirectory(self, "Select Directory to Scan")
         if folder:
             dlg = ScanDialog(self, ScanType.CUSTOM_SCAN, [folder])
@@ -702,6 +742,8 @@ class MainWindow(QMainWindow):
             self.refresh_quarantine_table()
 
     def on_memory_scan_clicked(self):
+        if not self._ensure_engine_ready():
+            return
         temp_dir = os.getenv("TEMP", str(Path.home()))
         dlg = ScanDialog(self, ScanType.MEMORY_SCAN, [temp_dir])
         dlg.exec()

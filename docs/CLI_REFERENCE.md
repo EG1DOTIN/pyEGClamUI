@@ -15,8 +15,9 @@ graph LR
 
 | Command | Category | Source Implementation | Description | Primary Target Audience |
 | :--- | :--- | :--- | :--- | :--- |
-| **`pyegclamui`** | GUI Launcher | [`../src/pyegclamui/gui/app.py`](../src/pyegclamui/gui/app.py) | Opens the full PySide6 desktop antivirus manager window | Desktop end-users |
+| **`pyegclamui`** | GUI Launcher | [`../src/pyegclamui/gui/app.py`](../src/pyegclamui/gui/app.py) | Deterministic dual-tier desktop launcher (Qt6 or Tkinter Lite) | Desktop end-users |
 | **`egclam`** | Alias | [`../src/pyegclamui/gui/app.py`](../src/pyegclamui/gui/app.py) | Quick terminal shorthand for `pyegclamui` | Terminal power-users |
+| **`pyegclamui-lite`** | Lite GUI | [`../src/pyegclamui/gui/tk_app.py`](../src/pyegclamui/gui/tk_app.py) | Directly launches pyEGClamUI Lite Tkinter single-window interface | Vintage/Low-RAM systems |
 | **`pyegclamui-scan`** | CLI Engine | [`../src/pyegclamui/core/scanner.py`](../src/pyegclamui/core/scanner.py) | Headless scanner for automation, shell scripts, and servers | CI/CD pipelines, sysadmins |
 | **`pyegclamui-setup`** | Setup Tool | [`../src/pyegclamui/core/setup_engine.py`](../src/pyegclamui/core/setup_engine.py) | Checks dependencies, installs ClamAV, and configures databases | First-time setup, DevOps |
 
@@ -25,20 +26,29 @@ graph LR
 ## 2. Desktop Launcher (`pyegclamui` & `egclam`)
 
 * **Source File**: [`../src/pyegclamui/gui/app.py`](../src/pyegclamui/gui/app.py)  
-* **Main Window**: [`../src/pyegclamui/gui/main_window.py`](../src/pyegclamui/gui/main_window.py)  
+* **Tier 1 (Qt6)**: [`../src/pyegclamui/gui/main_window.py`](../src/pyegclamui/gui/main_window.py)  
+* **Tier 2 (Tkinter)**: [`../src/pyegclamui/gui/tk_app.py`](../src/pyegclamui/gui/tk_app.py)  
 
-
-Launches the primary graphical user interface.
+Launches the desktop graphical user interface with deterministic hardware tier qualification.
 
 ### Syntax & Arguments
 
 ```bash
 pyegclamui [OPTIONS] [TARGET_PATHS...]
 egclam [OPTIONS] [TARGET_PATHS...]
+pyclamui [OPTIONS] [TARGET_PATHS...]
+pyclamui-lite [OPTIONS] [TARGET_PATHS...]
 ```
 
 | Flag | Long Flag | Description | Example |
 | :--- | :--- | :--- | :--- |
+| | `--ui=qt`, `--ui=pyside6` | Forces Tier 1 Modern Qt6 / PySide6 Suite | `pyegclamui --ui=qt` |
+| | `--ui=tk`, `--ui=lite` | Forces Tier 2 pyEGClamUI Lite Tkinter Dashboard | `pyegclamui --ui=tk` |
+| | `--lite`, `--tk` | Shorthand to force pyEGClamUI Lite GUI | `pyegclamui --lite` |
+| | `--qt`, `--qt6` | Shorthand to force Modern Qt6 GUI | `pyegclamui --qt` |
+| `-q` | `--quick` | Automatically triggers a Quick Scan upon launch | `egclam --quick` |
+| | `--full` | Automatically triggers a Full System Scan upon launch | `egclam --full` |
+| `-p` | `--path <dir>` | Specifies custom file or directory target to scan | `egclam -p /home/user/Downloads` |
 | `-m` | `--minimized` | Starts pyEGClamUI minimized directly to the system tray | `pyegclamui --minimized` |
 | | `--quarantine` | Opens the GUI with the Quarantine Vault tab active | `pyegclamui --quarantine` |
 | | `--install-desktop` | *(Linux)* Installs the XDG `.desktop` launcher and system icons | `pyegclamui --install-desktop` |

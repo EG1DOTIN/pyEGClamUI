@@ -82,5 +82,35 @@ fi
 
 echo -e "${GREEN}[+] Python environment verified: $($PYTHON_BIN --version)${RESET}"
 
+# Check ClamAV antivirus engine availability
+if ! command -v clamscan &>/dev/null; then
+    if command -v brew &>/dev/null; then
+        echo -e "${CYAN}[*] Installing ClamAV antivirus engine via Homebrew...${RESET}"
+        brew install clamav || echo -e "${YELLOW}[!] Warning: ClamAV could not be auto-installed via Homebrew.${RESET}"
+    fi
+fi
+
 # 3. Hand off to setup.py
 "$PYTHON_BIN" "$PROJECT_ROOT/setup/setup.py" "$@"
+
+# 4. Ensure terminal CLI command wrappers are available in macOS system PATH
+if [ -d "$HOME/.local/bin" ]; then
+    CLI_BINARIES="pyegclamui egclam pyclamui pyegclamui-lite pyclamui-lite pyegclamui-scan pyegclamui-setup"
+
+    # Try copying to /usr/local/bin for immediate availability in all Terminal sessions
+    if [ -w "/usr/local/bin" ]; then
+        for b in $CLI_BINARIES; do
+            if [ -f "$HOME/.local/bin/$b" ]; then
+                cp -f "$HOME/.local/bin/$b" "/usr/local/bin/$b" 2>/dev/null && chmod +x "/usr/local/bin/$b" 2>/dev/null || true
+            fi
+        done
+        echo -e "${GREEN}[+] Installed macOS CLI commands in /usr/local/bin${RESET}"
+    fi
+
+    # Ensure ~/.local/bin is in PATH for user profile
+    for profile in "$HOME/.zshrc" "$HOME/.bash_profile"; do
+        if [ -f "$profile" ] && ! grep -q 'HOME/.local/bin' "$profile"; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$profile"
+        fi
+    done
+fi

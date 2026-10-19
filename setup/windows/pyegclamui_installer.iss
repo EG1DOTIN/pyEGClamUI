@@ -4,8 +4,9 @@
 ; ==============================================================================
 
 #ifndef AppVersion
-  #define AppVersion "3.1.1"
+  #define AppVersion "3.2.0"
 #endif
+
 
 #define AppName "pyEGClamUI"
 #define AppPublisher "EG1"
@@ -35,7 +36,6 @@ WizardStyle=modern
 PrivilegesRequired=admin
 UsedUserAreasWarning=no
 ArchitecturesInstallIn64BitMode=x64
-ArchitecturesAllowed=x64
 DisableWelcomePage=no
 CloseApplications=force
 UninstallDisplayIcon={app}\src\pyegclamui\assets\egav.ico

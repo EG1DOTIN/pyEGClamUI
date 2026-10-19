@@ -41,6 +41,15 @@ class ClamEngineDetector:
             Path("C:/Program Files (x86)/ClamAV"),
             Path("C:/ClamAV"),
         ]
+        # Check bundled / portable engine relative to application
+        try:
+            pkg_root = AppPaths.get_package_root()
+            for rel in [pkg_root.parent / "engine", pkg_root / "engine", Path(sys.executable).parent / "engine"]:
+                if rel.is_dir():
+                    paths.insert(0, rel)
+        except Exception:
+            pass
+
         for env_var in ["LOCALAPPDATA", "APPDATA", "ProgramFiles", "ProgramFiles(x86)"]:
             val = os.getenv(env_var)
             if val and val.strip():
@@ -94,6 +103,47 @@ class ClamEngineDetector:
 
         return None
 
+    @classmethod
+    def get_standard_database_directories(cls) -> List[Path]:
+        """Returns standard locations where ClamAV virus databases are stored."""
+        dirs = [
+            AppPaths.get_database_dir(),
+        ]
+        if sys.platform == "win32":
+            dirs.extend([
+                Path("C:/Program Files/ClamAV/database"),
+                Path("C:/Program Files (x86)/ClamAV/database"),
+                Path("C:/ProgramData/ClamAV/db"),
+            ])
+            val = os.getenv("LOCALAPPDATA")
+            if val and val.strip():
+                dirs.append(Path(val) / "ClamAV" / "db")
+        elif sys.platform == "darwin":
+            dirs.extend([
+                Path("/opt/homebrew/var/lib/clamav"),
+                Path("/usr/local/var/lib/clamav"),
+                Path("/var/lib/clamav"),
+            ])
+        else:
+            dirs.extend([
+                Path("/var/lib/clamav"),
+                Path("/usr/local/share/clamav"),
+                Path("/var/clamav"),
+            ])
+        return dirs
+
+    def has_virus_signatures(self) -> bool:
+        """Checks whether valid ClamAV virus signature databases (.cvd, .cld) are present."""
+        for d in self.get_standard_database_directories():
+            if d.is_dir():
+                try:
+                    for f in d.iterdir():
+                        if f.is_file() and f.suffix.lower() in (".cvd", ".cld") and f.stat().st_size > 1000:
+                            return True
+                except (PermissionError, OSError):
+                    continue
+        return False
+
     def get_clamscan_path(self) -> Optional[str]:
         return self.find_executable("clamscan", "custom_clamscan_path")
 
@@ -132,6 +182,7 @@ class ClamEngineDetector:
                 "clamav_version": "Not Found",
                 "db_version": "Unknown",
                 "db_date": "Unknown",
+                "has_signatures": False,
                 "raw": "clamscan executable not found in PATH"
             }
             self._cached_version = (now, res)
@@ -154,13 +205,17 @@ class ClamEngineDetector:
             parts = raw.split("/")
             clamav_ver = parts[0].strip() if len(parts) > 0 else "ClamAV"
             db_ver = parts[1].strip() if len(parts) > 1 else "Unknown"
-            db_date = parts[2].strip() if len(parts) > 2 else "Unknown"
+            has_sigs = self.has_virus_signatures()
+            if not has_sigs and (db_ver in ("Unknown", "0", "") or "No supported database" in raw):
+                db_ver = "Missing (Update Required)"
+                db_date = "Run FreshClam"
 
             res = {
                 "installed": True,
                 "clamav_version": clamav_ver,
                 "db_version": db_ver,
                 "db_date": db_date,
+                "has_signatures": has_sigs,
                 "raw": raw
             }
         except Exception as e:
@@ -169,6 +224,7 @@ class ClamEngineDetector:
                 "clamav_version": "ClamAV",
                 "db_version": "Error",
                 "db_date": str(e),
+                "has_signatures": False,
                 "raw": f"Failed to query clamscan: {e}"
             }
 
@@ -189,6 +245,7 @@ class ClamEngineDetector:
         freshclam = self.get_freshclam_path()
         daemon_online, daemon_conn = self.check_daemon_socket()
         version_info = self.get_engine_version(force=force)
+        has_signatures = self.has_virus_signatures()
 
         res = {
             "clamscan_path": clamscan,
@@ -198,7 +255,9 @@ class ClamEngineDetector:
             "daemon_online": daemon_online,
             "daemon_connection": daemon_conn,
             "version": version_info,
+            "has_signatures": has_signatures,
             "ready": bool(clamscan or clamdscan or daemon_online),
+            "fully_operational": bool((clamscan or clamdscan or daemon_online) and has_signatures),
         }
         self._cached_inspect = (now, res)
         return res

@@ -7,6 +7,7 @@ import sys
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 try:
     import pytest
 except ImportError:
@@ -132,8 +133,19 @@ def test_shortcut_manager_linux_generation():
 
             user_desktop = fake_root / "Desktop" / "pyegclamui.desktop"
             assert user_desktop.is_file()
+
+            # Verify terminal CLI command wrappers
+            bin_dir = fake_root / ".local" / "bin"
+            assert bin_dir.is_dir()
+            for cmd in ["pyegclamui", "egclam", "pyclamui", "pyegclamui-lite", "pyclamui-lite", "pyegclamui-scan", "pyegclamui-setup"]:
+                wrapper_file = bin_dir / cmd
+                assert wrapper_file.is_file(), f"Expected CLI wrapper {wrapper_file} to exist"
+                content = wrapper_file.read_text(encoding="utf-8")
+                assert "#!/usr/bin/env bash" in content
+                assert "exec " in content
         finally:
             Path.home = orig_home
+
 
 
 def test_shortcut_manager_macos_generation():
@@ -154,8 +166,59 @@ def test_shortcut_manager_macos_generation():
             assert launcher.is_file()
             content = launcher.read_text(encoding="utf-8")
             assert "pyegclamui" in content
+
+            # Verify macOS CLI wrappers in ~/.local/bin
+            bin_dir = fake_root / ".local" / "bin"
+            assert bin_dir.is_dir()
+            for cmd in ["pyegclamui", "egclam", "pyclamui", "pyegclamui-lite", "pyclamui-lite"]:
+                wrapper = bin_dir / cmd
+                assert wrapper.is_file()
+                assert "exec " in wrapper.read_text(encoding="utf-8")
         finally:
             Path.home = orig_home
+
+
+def test_shortcut_manager_windows_generation():
+    """Validates Windows CLI command wrappers generation into WindowsApps folder."""
+    logger = SetupLogger()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_root = Path(tmpdir)
+        venv_mgr = VenvManager(fake_root, logger)
+        shortcut_mgr = ShortcutManager(fake_root, venv_mgr, logger)
+
+        # Mock pythonw.exe in .venv/Scripts
+        pyw = fake_root / ".venv" / "Scripts" / "pythonw.exe"
+        pyw.parent.mkdir(parents=True, exist_ok=True)
+        pyw.write_text("", encoding="utf-8")
+
+        fake_home = fake_root / "UserHome"
+        win_apps = fake_home / "AppData" / "Local" / "Microsoft" / "WindowsApps"
+        win_apps.mkdir(parents=True, exist_ok=True)
+
+        orig_env = os.environ.copy()
+        try:
+            os.environ["USERPROFILE"] = str(fake_home)
+            os.environ["APPDATA"] = str(fake_home / "AppData" / "Roaming")
+
+            # Mock powershell and python binary resolution
+            with patch("setup.run_hidden_process") as mock_proc, patch.object(
+                venv_mgr, "get_pythonw_exe", return_value=pyw
+            ), patch.object(
+                venv_mgr, "get_python_exe", return_value=pyw
+            ):
+                mock_proc.return_value = MagicMock(returncode=0)
+                success = shortcut_mgr._create_windows_shortcuts()
+                assert success is True
+
+                for cmd in ["pyegclamui", "egclam", "pyclamui", "pyegclamui-lite", "pyclamui-lite"]:
+                    wrapper = win_apps / f"{cmd}.cmd"
+                    assert wrapper.is_file(), f"Expected Windows wrapper {wrapper} to exist"
+                    content = wrapper.read_text(encoding="utf-8")
+                    assert "@echo off" in content
+                    assert "-m pyegclamui" in content
+        finally:
+            os.environ.clear()
+            os.environ.update(orig_env)
 
 
 class SimpleMonkeyPatch:
@@ -434,6 +497,7 @@ if __name__ == "__main__":
         test_venv_manager_cross_platform_corruption,
         test_shortcut_manager_linux_generation,
         test_shortcut_manager_macos_generation,
+        test_shortcut_manager_windows_generation,
         test_global_updater_mock,
         test_setup_cli_check_subprocess,
         test_setup_cli_help_subprocess,
