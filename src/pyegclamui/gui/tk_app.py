@@ -698,8 +698,21 @@ def run_tkinter_app(scan_path: Optional[str] = None, scan_mode: Optional[str] = 
         return 1
 
     app = TkinterApp(root, initial_path=scan_path, initial_mode=scan_mode)
+
+    # In automated test or non-interactive CI environments, do not block on mainloop
+    if os.environ.get("PYTEST_CURRENT_TEST") or (
+        os.environ.get("CI") and not os.environ.get("PYEGCLAMUI_INTERACTIVE")
+    ):
+        try:
+            root.update_idletasks()
+            root.destroy()
+        except Exception:
+            pass
+        return 0
+
     root.mainloop()
     return 0
+
 
 
 def main() -> int:

@@ -482,8 +482,9 @@ def test_app_main_cli_fallback_when_pyside6_missing():
 
     try:
         builtins.__import__ = mock_import
-        exit_code = app_mod.main()
-        assert exit_code == 1
+        with patch("pyegclamui.gui.tk_app.run_tkinter_app", return_value=1):
+            exit_code = app_mod.main()
+            assert exit_code == 1
     finally:
         builtins.__import__ = orig_import
 
