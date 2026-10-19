@@ -84,7 +84,18 @@ def test_main_dispatch_to_tkinter_tier():
         with patch.object(sys, "argv", ["app.py", "--lite"]):
             exit_code = app_mod.main()
             assert exit_code == 0
-            mock_run_tk.assert_called_once_with(scan_path=None)
+            mock_run_tk.assert_called_once_with(scan_path=None, scan_mode=None)
+
+
+def test_parse_gui_options_scan_flags():
+    """Validates --quick, --full, and --path CLI flags extraction."""
+    opts = app_mod.parse_gui_options(["app.py", "--quick", "--path=/custom/target"])
+    assert opts.scan_mode == "quick"
+    assert opts.target_path == "/custom/target"
+
+    opts2 = app_mod.parse_gui_options(["app.py", "--full", "-p", "/another/path"])
+    assert opts2.scan_mode == "full"
+    assert opts2.target_path == "/another/path"
 
 
 def test_main_dispatch_pyside6_fallback_to_tkinter():
@@ -136,6 +147,8 @@ if __name__ == "__main__":
     print("  [PASS] test_parse_gui_options")
     test_parse_gui_options_corner_cases()
     print("  [PASS] test_parse_gui_options_corner_cases")
+    test_parse_gui_options_scan_flags()
+    print("  [PASS] test_parse_gui_options_scan_flags")
     test_main_dispatch_to_tkinter_tier()
     print("  [PASS] test_main_dispatch_to_tkinter_tier")
     test_main_dispatch_pyside6_fallback_to_tkinter()

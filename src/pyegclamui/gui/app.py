@@ -53,19 +53,39 @@ def install_crash_handler(qapp_cls=None):
     sys.excepthook = handle_exception
 
 
-def parse_gui_options(args: list[str]) -> Tuple[Optional[str], bool, Optional[str]]:
+class GuiOptions(tuple):
+    """Tuple subclass preserving (tier_override, start_minimized, target_path) compatibility while exposing scan_mode."""
+
+    def __new__(cls, tier_override: Optional[str], start_minimized: bool, target_path: Optional[str], scan_mode: Optional[str] = None):
+        return super().__new__(cls, (tier_override, start_minimized, target_path))
+
+    def __init__(self, tier_override: Optional[str], start_minimized: bool, target_path: Optional[str], scan_mode: Optional[str] = None):
+        self.tier_override = tier_override
+        self.start_minimized = start_minimized
+        self.target_path = target_path
+        self.scan_mode = scan_mode
+
+
+def parse_gui_options(args: list[str]) -> GuiOptions:
     """
-    Parses CLI arguments for GUI tier override, minimization, and target scan path.
-    Returns: (tier_override, start_minimized, target_path)
+    Parses CLI arguments for GUI tier override, minimization, target scan path, and scan mode.
+    Returns: GuiOptions tuple compatible with (tier_override, start_minimized, target_path)
     """
     tier_override: Optional[str] = None
     start_minimized: bool = False
     target_path: Optional[str] = None
+    scan_mode: Optional[str] = None
 
-    for arg in args[1:]:
+    i = 1
+    while i < len(args):
+        arg = args[i]
         arg_lower = arg.lower()
         if arg_lower in ("--minimized", "-m"):
             start_minimized = True
+        elif arg_lower in ("--quick", "-q"):
+            scan_mode = "quick"
+        elif arg_lower == "--full":
+            scan_mode = "full"
         elif arg_lower in ("--lite", "--tk", "--tkinter", "--tier2"):
             tier_override = "tkinter"
         elif arg_lower in ("--qt", "--qt6", "--pyside6", "--tier1"):
@@ -86,17 +106,28 @@ def parse_gui_options(args: list[str]) -> Tuple[Optional[str], bool, Optional[st
                 tier_override = "pyside6"
             else:
                 tier_override = val
+        elif arg_lower.startswith("--path="):
+            target_path = arg.split("=", 1)[1].strip()
+        elif arg_lower in ("--path", "-p") and i + 1 < len(args):
+            i += 1
+            target_path = args[i]
         elif not arg.startswith("-") and os.path.exists(arg):
             target_path = arg
+        i += 1
 
-    return tier_override, start_minimized, target_path
+    return GuiOptions(tier_override, start_minimized, target_path, scan_mode)
 
 
 def main() -> int:
     """Main application execution function with deterministic dual-tier GUI routing."""
     setup_logging()
 
-    tier_override, start_minimized, target_path = parse_gui_options(sys.argv)
+    options = parse_gui_options(sys.argv)
+    tier_override = options.tier_override
+    start_minimized = options.start_minimized
+    target_path = options.target_path
+    scan_mode = options.scan_mode
+
     assigned_tier = determine_gui_tier(tier_override)
     specs = get_system_specs()
 
@@ -115,7 +146,7 @@ def main() -> int:
     if assigned_tier == "tkinter":
         logger.info("Executing pyEGClamUI Lite Tkinter interface...")
         from pyegclamui.gui.tk_app import run_tkinter_app
-        return run_tkinter_app(scan_path=target_path)
+        return run_tkinter_app(scan_path=target_path, scan_mode=scan_mode)
 
     # --------------------------------------------------------------------------
     # Tier 1: Modern Qt6 / PySide6 Suite
@@ -134,7 +165,7 @@ def main() -> int:
             e,
         )
         from pyegclamui.gui.tk_app import run_tkinter_app
-        fallback_res = run_tkinter_app(scan_path=target_path)
+        fallback_res = run_tkinter_app(scan_path=target_path, scan_mode=scan_mode)
         if fallback_res == 0:
             return 0
 
@@ -204,6 +235,23 @@ def main() -> int:
 
     if not start_minimized:
         window.show()
+
+    # Trigger initial scan if requested via CLI
+    if scan_mode == "quick":
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(300, window.on_quick_scan_clicked)
+    elif scan_mode == "full":
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(300, window.on_full_scan_clicked)
+    elif target_path and os.path.exists(target_path):
+        from PySide6.QtCore import QTimer
+        from pyegclamui.core.scanner import ScanType
+        from pyegclamui.gui.scan_dialog import ScanDialog
+        def _start_path():
+            dlg = ScanDialog(window, ScanType.CUSTOM_SCAN, [target_path])
+            dlg.exec()
+            window.refresh_quarantine_table()
+        QTimer.singleShot(300, _start_path)
 
     return app.exec()
 

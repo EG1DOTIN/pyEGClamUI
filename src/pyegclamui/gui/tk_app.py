@@ -60,7 +60,7 @@ from pyegclamui.core.updater import ClamUpdater
 class TkinterApp:
     """Consolidated Single-Window Lite Desktop Antivirus Dashboard."""
 
-    def __init__(self, root: Any, initial_path: Optional[str] = None):
+    def __init__(self, root: Any, initial_path: Optional[str] = None, initial_mode: Optional[str] = None):
         self.root = root
         self.root.title("pyEGClamUI Lite - Antivirus Desktop Interface")
 
@@ -70,7 +70,9 @@ class TkinterApp:
             screen_h = self.root.winfo_screenheight()
             win_w = min(840, max(640, int(screen_w * 0.90)))
             win_h = min(620, max(460, int(screen_h * 0.85)))
-            self.root.geometry(f"{win_w}x{win_h}")
+            pos_x = max(0, (screen_w - win_w) // 2)
+            pos_y = max(0, (screen_h - win_h) // 2)
+            self.root.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
             self.root.minsize(min(640, win_w), min(460, win_h))
         except Exception:
             self.root.geometry("840x620")
@@ -78,7 +80,6 @@ class TkinterApp:
 
         # Set Window Icon if available
         self._set_window_icon()
-
 
         # Core Backend Subsystems
         self.config = Config.get_instance()
@@ -107,8 +108,12 @@ class TkinterApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(50, self._poll_event_queue)
 
-        # Trigger auto-scan if initial path was provided via CLI
-        if initial_path and os.path.exists(initial_path):
+        # Trigger auto-scan if initial mode or path was provided via CLI
+        if initial_mode == "quick":
+            self.root.after(300, self._start_quick_scan)
+        elif initial_mode == "full":
+            self.root.after(300, self._start_full_scan)
+        elif initial_path and os.path.exists(initial_path):
             self.root.after(300, lambda: self._start_custom_scan(initial_path))
 
     def _set_window_icon(self):
@@ -191,16 +196,22 @@ class TkinterApp:
         action_bar.pack(fill=tk.X, pady=(0, 8))
 
         self.btn_quick = ttk.Button(action_bar, text="⚡ Quick Scan", command=self._start_quick_scan)
-        self.btn_quick.pack(side=tk.LEFT, padx=4)
+        self.btn_quick.pack(side=tk.LEFT, padx=3)
 
         self.btn_full = ttk.Button(action_bar, text="🔍 Full Scan", command=self._start_full_scan)
-        self.btn_full.pack(side=tk.LEFT, padx=4)
+        self.btn_full.pack(side=tk.LEFT, padx=3)
 
-        self.btn_custom = ttk.Button(action_bar, text="📂 Custom Scan...", command=self._browse_and_scan)
-        self.btn_custom.pack(side=tk.LEFT, padx=4)
+        self.btn_custom_folder = ttk.Button(action_bar, text="📂 Scan Folder...", command=self._browse_and_scan_folder)
+        self.btn_custom_folder.pack(side=tk.LEFT, padx=3)
+
+        self.btn_custom_file = ttk.Button(action_bar, text="📄 Scan File...", command=self._browse_and_scan_file)
+        self.btn_custom_file.pack(side=tk.LEFT, padx=3)
+
+        # Retain btn_custom attribute for backwards compatibility
+        self.btn_custom = self.btn_custom_folder
 
         self.btn_stop = ttk.Button(action_bar, text="🛑 Stop Scan", command=self._stop_scan, state=tk.DISABLED)
-        self.btn_stop.pack(side=tk.RIGHT, padx=4)
+        self.btn_stop.pack(side=tk.RIGHT, padx=3)
 
         # Progress & Status Card
         prog_frame = ttk.LabelFrame(self.tab_scan, text=" Scan Progress ", padding=8)
@@ -328,10 +339,20 @@ class TkinterApp:
         targets = self.scanner.get_system_drives()
         self._launch_scan(targets, ScanType.FULL_SCAN)
 
+    def _browse_and_scan_folder(self):
+        if filedialog:
+            choice = filedialog.askdirectory(title="Select Folder to Scan with pyEGClamUI")
+            if choice:
+                self._launch_scan([choice], f"{ScanType.CUSTOM_SCAN} ({Path(choice).name})")
+
+    def _browse_and_scan_file(self):
+        if filedialog:
+            choice = filedialog.askopenfilename(title="Select File to Scan with pyEGClamUI")
+            if choice:
+                self._launch_scan([choice], f"File Scan ({Path(choice).name})")
+
     def _browse_and_scan(self):
-        choice = filedialog.askdirectory(title="Select Folder to Scan with pyEGClamUI")
-        if choice:
-            self._launch_scan([choice], f"{ScanType.CUSTOM_SCAN} ({Path(choice).name})")
+        self._browse_and_scan_folder()
 
     def _start_custom_scan(self, path: str):
         self._launch_scan([path], f"Target Scan ({Path(path).name})")
@@ -347,6 +368,10 @@ class TkinterApp:
 
         self.btn_quick.config(state=tk.DISABLED)
         self.btn_full.config(state=tk.DISABLED)
+        if hasattr(self, "btn_custom_folder"):
+            self.btn_custom_folder.config(state=tk.DISABLED)
+        if hasattr(self, "btn_custom_file"):
+            self.btn_custom_file.config(state=tk.DISABLED)
         self.btn_custom.config(state=tk.DISABLED)
         self.btn_stop.config(state=tk.NORMAL)
         self.progressbar.start(10)
@@ -524,6 +549,10 @@ class TkinterApp:
                     self.is_scanning = False
                     self.btn_quick.config(state=tk.NORMAL)
                     self.btn_full.config(state=tk.NORMAL)
+                    if hasattr(self, "btn_custom_folder"):
+                        self.btn_custom_folder.config(state=tk.NORMAL)
+                    if hasattr(self, "btn_custom_file"):
+                        self.btn_custom_file.config(state=tk.NORMAL)
                     self.btn_custom.config(state=tk.NORMAL)
                     self.btn_stop.config(state=tk.DISABLED)
 
@@ -561,10 +590,22 @@ class TkinterApp:
 
     def _log_msg(self, msg: str, tag: str = "info"):
         self.txt_log.insert(tk.END, msg + "\n", tag)
+        try:
+            line_count = int(self.txt_log.index("end-1c").split(".")[0])
+            if line_count > 1000:
+                self.txt_log.delete("1.0", f"{line_count - 1000}.0")
+        except Exception:
+            pass
         self.txt_log.see(tk.END)
 
     def _log_maint(self, msg: str):
         self.txt_maint.insert(tk.END, msg + "\n")
+        try:
+            line_count = int(self.txt_maint.index("end-1c").split(".")[0])
+            if line_count > 1000:
+                self.txt_maint.delete("1.0", f"{line_count - 1000}.0")
+        except Exception:
+            pass
         self.txt_maint.see(tk.END)
 
     def _on_close(self):
@@ -576,7 +617,7 @@ class TkinterApp:
         self.root.destroy()
 
 
-def run_tkinter_app(scan_path: Optional[str] = None) -> int:
+def run_tkinter_app(scan_path: Optional[str] = None, scan_mode: Optional[str] = None) -> int:
     """Launches pyEGClamUI Lite Tkinter GUI application."""
     if not _tk_installed or tk is None:
         print("\n" + "=" * 68)
@@ -606,15 +647,33 @@ def run_tkinter_app(scan_path: Optional[str] = None) -> int:
         print("Or set up virtual frame buffer: xvfb-run pyegclamui\n")
         return 1
 
-    app = TkinterApp(root, initial_path=scan_path)
+    app = TkinterApp(root, initial_path=scan_path, initial_mode=scan_mode)
     root.mainloop()
     return 0
 
 
 def main() -> int:
-    """Entry point for pyEGClamUI Lite."""
-    path_arg = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else None
-    return run_tkinter_app(path_arg)
+    """Entry point for pyEGClamUI Lite with full CLI flag support."""
+    scan_path = None
+    scan_mode = None
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        arg_lower = arg.lower()
+        if arg_lower in ("--quick", "-q"):
+            scan_mode = "quick"
+        elif arg_lower == "--full":
+            scan_mode = "full"
+        elif arg_lower.startswith("--path="):
+            scan_path = arg.split("=", 1)[1].strip()
+        elif arg_lower in ("--path", "-p") and i + 1 < len(sys.argv):
+            i += 1
+            scan_path = sys.argv[i]
+        elif not arg.startswith("-") and os.path.exists(arg):
+            scan_path = arg
+        i += 1
+
+    return run_tkinter_app(scan_path=scan_path, scan_mode=scan_mode)
 
 
 if __name__ == "__main__":

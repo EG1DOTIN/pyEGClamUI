@@ -15,7 +15,9 @@ venv_python = (
 
 if venv_python.is_file() and not os.environ.get("_PYEGCLAMUI_IN_VENV"):
     try:
-        if Path(sys.prefix).resolve() != (repo_root / ".venv").resolve():
+        prefix_path = str(Path(sys.prefix).resolve()).lower()
+        venv_path = str((repo_root / ".venv").resolve()).lower()
+        if prefix_path != venv_path:
             os.environ["_PYEGCLAMUI_IN_VENV"] = "1"
             os.execv(str(venv_python), [str(venv_python), str(__file__)] + sys.argv[1:])
     except Exception:

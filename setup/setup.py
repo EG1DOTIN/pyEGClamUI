@@ -458,7 +458,7 @@ class VenvManager:
         mach = platform.machine().lower()
         return (
             mach in ("i386", "i686", "i486", "i586", "x86", "armv7l", "armv6l")
-            or (sys.maxsize <= 2**32 and sys.platform != "win32")
+            or sys.maxsize <= 2**32
         )
 
     def _verify_pyside6_runtime(self, py_exe: Path) -> bool:
@@ -983,14 +983,29 @@ class ShortcutManager:
         """Removes application shortcuts across Windows, Linux, and macOS."""
         self.logger.info("Removing pyEGClamUI shortcuts...")
         removed_any = False
+        cli_names = [
+            "pyegclamui",
+            "egclam",
+            "pyclamui",
+            "pyegclamui-lite",
+            "pyclamui-lite",
+            "pyegclamui-scan",
+            "pyegclamui-setup",
+        ]
         if sys.platform == "win32":
             desktop = Path(os.environ.get("USERPROFILE", "")) / "Desktop" / "pyEGClamUI.lnk"
             start_menu = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "pyEGClamUI.lnk"
-            for s in [desktop, start_menu]:
+            targets = [desktop, start_menu]
+
+            win_apps = Path(os.environ.get("USERPROFILE", "")) / "AppData" / "Local" / "Microsoft" / "WindowsApps"
+            for cmd_name in cli_names:
+                targets.append(win_apps / f"{cmd_name}.cmd")
+
+            for s in targets:
                 if s.is_file():
                     try:
                         s.unlink()
-                        self.logger.ok(f"Removed shortcut: {s}")
+                        self.logger.ok(f"Removed Windows entry: {s}")
                         removed_any = True
                     except Exception as e:
                         self.logger.warn(f"Failed to remove {s}: {e}")
@@ -1000,15 +1015,6 @@ class ShortcutManager:
                 Path.home() / ".local" / "share" / "applications" / "pyegclamui.desktop",
                 Path.home() / "Desktop" / "pyegclamui.desktop",
                 Path.home() / ".local" / "share" / "icons" / "hicolor" / "128x128" / "apps" / "pyegclamui.png"
-            ]
-            cli_names = [
-                "pyegclamui",
-                "egclam",
-                "pyclamui",
-                "pyegclamui-lite",
-                "pyclamui-lite",
-                "pyegclamui-scan",
-                "pyegclamui-setup",
             ]
             for b_dir in [Path.home() / ".local" / "bin", Path("/usr/local/bin")]:
                 for cmd_name in cli_names:
@@ -1029,11 +1035,15 @@ class ShortcutManager:
                 Path.home() / "Desktop" / "pyEGClamUI.command",
                 Path.home() / "Applications" / "pyEGClamUI.command"
             ]
+            for b_dir in [Path.home() / ".local" / "bin", Path("/usr/local/bin")]:
+                for cmd_name in cli_names:
+                    targets.append(b_dir / cmd_name)
+
             for s in targets:
                 if s.is_file():
                     try:
                         s.unlink()
-                        self.logger.ok(f"Removed macOS launcher: {s}")
+                        self.logger.ok(f"Removed macOS entry: {s}")
                         removed_any = True
                     except Exception as e:
                         self.logger.warn(f"Failed to remove {s}: {e}")
@@ -1041,8 +1051,9 @@ class ShortcutManager:
         return False
 
     def _create_windows_shortcuts(self) -> bool:
-        """Creates Windows .lnk shortcuts on Desktop & Start Menu using pythonw.exe."""
+        """Creates Windows .lnk shortcuts on Desktop & Start Menu using pythonw.exe and CLI wrappers."""
         pythonw_exe = self.venv_mgr.get_pythonw_exe()
+        python_exe = self.venv_mgr.get_python_exe()
         if not pythonw_exe.is_file():
             self.logger.error("pythonw.exe not found in .venv. Cannot generate Windows shortcuts.")
             return False
@@ -1080,10 +1091,31 @@ class ShortcutManager:
             run_hidden_process(["powershell", "-Command", ps_script], check=True, capture_output=True)
             self.logger.ok(f"Desktop shortcut created: {targets[0]}")
             self.logger.ok(f"Start Menu entry created: {targets[1]}")
-            return True
         except Exception as e:
-            self.logger.warn(f"Failed to create Windows shortcuts via PowerShell: {e}")
-            return False
+            self.logger.warn(f"Notice on creating Windows .lnk shortcuts via PowerShell: {e}")
+
+        # Install Windows CLI command wrappers (.cmd) into WindowsApps folder (always in user %PATH%)
+        commands_map = {
+            "pyegclamui": f'@echo off\n"{python_exe}" -m pyegclamui %*\n',
+            "egclam": f'@echo off\n"{python_exe}" -m pyegclamui %*\n',
+            "pyclamui": f'@echo off\n"{python_exe}" -m pyegclamui %*\n',
+            "pyegclamui-lite": f'@echo off\n"{python_exe}" -m pyegclamui.gui.tk_app %*\n',
+            "pyclamui-lite": f'@echo off\n"{python_exe}" -m pyegclamui.gui.tk_app %*\n',
+            "pyegclamui-scan": f'@echo off\n"{python_exe}" -m pyegclamui.core.scanner %*\n',
+            "pyegclamui-setup": f'@echo off\n"{python_exe}" -m pyegclamui.core.setup_engine %*\n',
+        }
+
+        win_apps_dir = Path(user_profile) / "AppData" / "Local" / "Microsoft" / "WindowsApps"
+        if win_apps_dir.is_dir():
+            try:
+                for cmd_name, cmd_content in commands_map.items():
+                    wrapper = win_apps_dir / f"{cmd_name}.cmd"
+                    wrapper.write_text(cmd_content, encoding="utf-8")
+                self.logger.ok(f"Windows terminal command wrappers installed: {win_apps_dir}")
+            except Exception as e:
+                self.logger.warn(f"Notice on installing Windows CLI wrappers: {e}")
+
+        return True
 
     def _create_linux_shortcuts(self) -> bool:
         """Installs XDG .desktop launcher and hicolor app icon."""
@@ -1162,9 +1194,8 @@ Exec="{python_exe}" -m pyegclamui.core.scanner --quick
 
         return True
 
-
     def _create_macos_shortcuts(self) -> bool:
-        """Creates macOS desktop launch command script."""
+        """Creates macOS desktop launch command script and terminal CLI wrappers."""
         python_exe = self.venv_mgr.get_python_exe()
         desktop_dir = Path.home() / "Desktop"
         desktop_dir.mkdir(parents=True, exist_ok=True)
@@ -1186,6 +1217,34 @@ cd "{self.project_root}"
                 self.logger.ok(f"macOS Applications launcher created: {app_launcher}")
             except Exception:
                 pass
+
+        # Install macOS terminal CLI wrappers in ~/.local/bin and /usr/local/bin
+        commands_map = {
+            "pyegclamui": f'exec "{python_exe}" -m pyegclamui "$@"',
+            "egclam": f'exec "{python_exe}" -m pyegclamui "$@"',
+            "pyclamui": f'exec "{python_exe}" -m pyegclamui "$@"',
+            "pyegclamui-lite": f'exec "{python_exe}" -m pyegclamui.gui.tk_app "$@"',
+            "pyclamui-lite": f'exec "{python_exe}" -m pyegclamui.gui.tk_app "$@"',
+            "pyegclamui-scan": f'exec "{python_exe}" -m pyegclamui.core.scanner "$@"',
+            "pyegclamui-setup": f'exec "{python_exe}" -m pyegclamui.core.setup_engine "$@"',
+        }
+
+        user_bin_dir = Path.home() / ".local" / "bin"
+        target_bin_dirs = [user_bin_dir]
+        usr_local_bin = Path("/usr/local/bin")
+        if os.access(usr_local_bin, os.W_OK):
+            target_bin_dirs.append(usr_local_bin)
+
+        for b_dir in target_bin_dirs:
+            try:
+                b_dir.mkdir(parents=True, exist_ok=True)
+                for cmd_name, cmd_exec in commands_map.items():
+                    wrapper = b_dir / cmd_name
+                    wrapper.write_text(f"#!/usr/bin/env bash\n{cmd_exec}\n", encoding="utf-8")
+                    wrapper.chmod(0o755)
+                self.logger.ok(f"macOS terminal CLI wrappers installed: {b_dir}")
+            except Exception as e:
+                self.logger.warn(f"Notice on installing CLI wrappers in {b_dir}: {e}")
 
         return True
 

@@ -36,7 +36,6 @@ WizardStyle=modern
 PrivilegesRequired=admin
 UsedUserAreasWarning=no
 ArchitecturesInstallIn64BitMode=x64
-ArchitecturesAllowed=x64
 DisableWelcomePage=no
 CloseApplications=force
 UninstallDisplayIcon={app}\src\pyegclamui\assets\egav.ico

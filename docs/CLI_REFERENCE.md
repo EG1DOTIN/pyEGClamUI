@@ -36,6 +36,8 @@ Launches the desktop graphical user interface with deterministic hardware tier q
 ```bash
 pyegclamui [OPTIONS] [TARGET_PATHS...]
 egclam [OPTIONS] [TARGET_PATHS...]
+pyclamui [OPTIONS] [TARGET_PATHS...]
+pyclamui-lite [OPTIONS] [TARGET_PATHS...]
 ```
 
 | Flag | Long Flag | Description | Example |
@@ -44,6 +46,9 @@ egclam [OPTIONS] [TARGET_PATHS...]
 | | `--ui=tk`, `--ui=lite` | Forces Tier 2 pyEGClamUI Lite Tkinter Dashboard | `pyegclamui --ui=tk` |
 | | `--lite`, `--tk` | Shorthand to force pyEGClamUI Lite GUI | `pyegclamui --lite` |
 | | `--qt`, `--qt6` | Shorthand to force Modern Qt6 GUI | `pyegclamui --qt` |
+| `-q` | `--quick` | Automatically triggers a Quick Scan upon launch | `egclam --quick` |
+| | `--full` | Automatically triggers a Full System Scan upon launch | `egclam --full` |
+| `-p` | `--path <dir>` | Specifies custom file or directory target to scan | `egclam -p /home/user/Downloads` |
 | `-m` | `--minimized` | Starts pyEGClamUI minimized directly to the system tray | `pyegclamui --minimized` |
 | | `--quarantine` | Opens the GUI with the Quarantine Vault tab active | `pyegclamui --quarantine` |
 | | `--install-desktop` | *(Linux)* Installs the XDG `.desktop` launcher and system icons | `pyegclamui --install-desktop` |

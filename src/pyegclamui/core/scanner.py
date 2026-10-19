@@ -68,16 +68,19 @@ class ClamScanner:
     def get_system_drives(self) -> List[str]:
         """Cross-platform drive partition enumeration using psutil."""
         drives = []
-        for part in psutil.disk_partitions(all=False):
-            mount = part.mountpoint
-            if sys.platform == "win32":
-                if part.fstype and not mount.startswith(("\\\\", "//")):
-                    drives.append(mount)
-            else:
-                if mount in ["/", "/home"] or mount.startswith("/media/") or mount.startswith("/Volumes/"):
-                    if Path(mount).is_dir():
+        try:
+            for part in psutil.disk_partitions(all=False):
+                mount = part.mountpoint
+                if sys.platform == "win32":
+                    if part.fstype and not mount.startswith(("\\\\", "//")):
                         drives.append(mount)
-        return list(dict.fromkeys(drives)) or ["/"]
+                else:
+                    if mount in ["/", "/home"] or mount.startswith("/media/") or mount.startswith("/Volumes/"):
+                        if Path(mount).is_dir():
+                            drives.append(mount)
+        except Exception:
+            pass
+        return list(dict.fromkeys(drives)) or (["C:\\"] if sys.platform == "win32" else ["/"])
 
     def get_quick_scan_paths(self) -> List[str]:
         """Returns standard high-risk user directories for fast scanning."""

@@ -360,7 +360,7 @@ def test_tkinter_app_double_update_protection():
 
 
 def test_tkinter_app_geometry_format_validity():
-    """Validates that window geometry specifier is formatted as WxH without commas and fits screen."""
+    """Validates that window geometry specifier is formatted as WxH[+X+Y] without commas and fits screen."""
     import re
 
     # 1. Standard desktop display (1920x1080)
@@ -372,8 +372,8 @@ def test_tkinter_app_geometry_format_validity():
     geo_arg = mock_root_1080p.geometry.call_args[0][0]
     assert "," not in geo_arg, f"Geometry string '{geo_arg}' must not contain commas"
     assert "x" in geo_arg, f"Geometry string '{geo_arg}' must use 'x' separator"
-    assert re.match(r"^\d+x\d+$", geo_arg), f"Invalid geometry format: {geo_arg}"
-    assert geo_arg == "840x620"
+    assert re.match(r"^\d+x\d+(\+\d+\+\d+)?$", geo_arg), f"Invalid geometry format: {geo_arg}"
+    assert geo_arg.startswith("840x620")
 
     # 2. VirtualBox / Small VM display (800x600)
     mock_root_vm = MagicMock()
@@ -383,10 +383,36 @@ def test_tkinter_app_geometry_format_validity():
 
     geo_arg_vm = mock_root_vm.geometry.call_args[0][0]
     assert "," not in geo_arg_vm
-    assert re.match(r"^\d+x\d+$", geo_arg_vm)
-    w_vm, h_vm = map(int, geo_arg_vm.split("x"))
+    assert re.match(r"^\d+x\d+(\+\d+\+\d+)?$", geo_arg_vm)
+    w_vm, h_vm = map(int, geo_arg_vm.split("+")[0].split("x"))
     assert w_vm <= 800, f"Width {w_vm} must fit inside 800px display"
     assert h_vm <= 600, f"Height {h_vm} must fit inside 600px display"
+
+
+def test_tkinter_app_custom_scan_file_browser():
+    """Validates single file browser execution."""
+    mock_root = MagicMock()
+    app, _, _, _, _ = _create_test_app(mock_root)
+
+    with patch.object(tk_app_mod, "filedialog") as mock_fd, patch.object(
+        app, "_launch_scan"
+    ) as mock_launch:
+        mock_fd.askopenfilename.return_value = "/tmp/test_file.exe"
+        app._browse_and_scan_file()
+        mock_launch.assert_called_once()
+        args = mock_launch.call_args[0]
+        assert args[0] == ["/tmp/test_file.exe"]
+
+
+def test_tkinter_app_log_buffer_memory_bounding():
+    """Validates that log text buffer prunes older entries when exceeding 1000 lines."""
+    mock_root = MagicMock()
+    app, _, _, _, _ = _create_test_app(mock_root)
+
+    # Mock index to simulate 1050 lines
+    app.txt_log.index.return_value = "1050.0"
+    app._log_msg("Test line")
+    app.txt_log.delete.assert_called_with("1.0", "50.0")
 
 
 if __name__ == "__main__":
@@ -423,6 +449,10 @@ if __name__ == "__main__":
     print("  [PASS] test_tkinter_app_double_update_protection")
     test_tkinter_app_geometry_format_validity()
     print("  [PASS] test_tkinter_app_geometry_format_validity")
-    print("All 16 Tkinter Lite tests passed successfully!\n")
+    test_tkinter_app_custom_scan_file_browser()
+    print("  [PASS] test_tkinter_app_custom_scan_file_browser")
+    test_tkinter_app_log_buffer_memory_bounding()
+    print("  [PASS] test_tkinter_app_log_buffer_memory_bounding")
+    print("All 18 Tkinter Lite tests passed successfully!\n")
 
 

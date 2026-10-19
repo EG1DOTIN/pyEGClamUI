@@ -41,6 +41,15 @@ class ClamEngineDetector:
             Path("C:/Program Files (x86)/ClamAV"),
             Path("C:/ClamAV"),
         ]
+        # Check bundled / portable engine relative to application
+        try:
+            pkg_root = AppPaths.get_package_root()
+            for rel in [pkg_root.parent / "engine", pkg_root / "engine", Path(sys.executable).parent / "engine"]:
+                if rel.is_dir():
+                    paths.insert(0, rel)
+        except Exception:
+            pass
+
         for env_var in ["LOCALAPPDATA", "APPDATA", "ProgramFiles", "ProgramFiles(x86)"]:
             val = os.getenv(env_var)
             if val and val.strip():

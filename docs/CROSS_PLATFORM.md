@@ -163,10 +163,13 @@ sudo pacman -S --noconfirm tk
 ```
 
 > [!TIP]
-> You can explicitly force the lightweight interface on any machine using the `--ui=tk` or `--lite` CLI options:
+> You can launch pyEGClamUI using any of the standard command aliases configured in your terminal:
 > ```bash
-> pyegclamui --lite
-> # or via standalone launcher:
-> pyegclamui-lite
+> egclam                         # Unified adaptive launcher
+> pyclamui                       # Standard alias
+> pyclamui-lite                  # Direct pyEGClamUI Lite (Tkinter) interface
+> pyegclamui --lite              # Force Tkinter Lite on any machine
+> pyegclamui --quick             # Trigger automated Quick Scan on launch
+> pyegclamui --path /path/to/scan  # Scan specific file or directory
 > ```
 
