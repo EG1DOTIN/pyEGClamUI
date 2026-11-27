@@ -1,11 +1,11 @@
 # pyEGClamUI
 
-[![Version: 3.2.0](https://img.shields.io/badge/Version-3.2.0-00C853.svg)](docs/VERSIONING.md)
+[![Version: 3.2.1](https://img.shields.io/badge/Version-3.2.1-00C853.svg)](docs/VERSIONING.md)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python: >=3.9](https://img.shields.io/badge/Python->=3.9-3776AB.svg?logo=python&logoColor=white)](https://python.org)
 [![Platform: Windows | Linux | macOS](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/EG1DOTIN/pyEGClamUI)
 
-**Current Stable Release**: `v3.2.0` — An open-source, cross-platform desktop GUI for ClamAV engine. Built with Python and PySide6 (Qt).
+**Current Stable Release**: `v3.2.1` — An open-source, cross-platform desktop GUI for ClamAV engine. Built with Python and PySide6 (Qt).
 
 
 ---
@@ -68,7 +68,7 @@ pyEGClamUI includes an automated, cross-platform bootstrap setup suite ([`setup/
 ### 🪟 Windows Setup Options
 
 #### Option A: Standalone Setup Wizard (Recommended for End Users)
-Download the latest `pyEGClamUI-v3.2.0-Windows-Setup.exe` installer from [GitHub Releases](https://github.com/EG1DOTIN/pyEGClamUI/releases):
+Download the latest `pyEGClamUI-v3.2.1-Windows-Setup.exe` installer from [GitHub Releases](https://github.com/EG1DOTIN/pyEGClamUI/releases):
 
 * 🛡️ **Zero False Positives**: Uses official signed Python 3.12 embedded runtime.
 * ⚡ **Ultra-Fast Scans**: Automatically configures and launches ClamD resident daemon service (15 ms latency).

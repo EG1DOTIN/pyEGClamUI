@@ -9,7 +9,7 @@ import sys
 from typing import Optional
 
 import psutil
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -31,10 +31,13 @@ from pyegclamui.core.telemetry import TelemetryManager, sanitize_log_text
 class IssueDialog(QDialog):
     """Interactive issue reporter supporting private cloud dispatch and sanitized GitHub markdown."""
 
+    _submission_finished = Signal(bool, str)
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.telemetry_mgr = TelemetryManager()
         self.detector = ClamEngineDetector()
+        self._submission_finished.connect(self._handle_submission_result)
 
         self.setWindowTitle("Report an Issue or Bug - pyEGClamUI")
         self.resize(600, 560)
@@ -266,27 +269,28 @@ class IssueDialog(QDialog):
         self.btn_submit.setEnabled(False)
         self.btn_submit.setText("Submitting...")
 
-        def _on_finished(success: bool, msg: str):
-            self.btn_submit.setEnabled(True)
-            self.btn_submit.setText("🚀 Submit Privately")
-            if success:
-                QMessageBox.information(
-                    self,
-                    "Report Sent",
-                    "Thank you! Your diagnostic report was submitted privately to project maintainers.\n"
-                    "No personal files or paths were included.",
-                )
-                self.accept()
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Submission Failed",
-                    f"Could not submit report: {msg}\n\n"
-                    "You can alternatively use 'Copy for GitHub' to submit the report manually.",
-                )
-
         self.telemetry_mgr.send_issue_report_async(
             description=description,
             include_logs=self.chk_logs.isChecked(),
-            on_complete=_on_finished,
+            on_complete=self._submission_finished.emit,
         )
+
+    def _handle_submission_result(self, success: bool, msg: str):
+        """Handles submission result safely on the Qt main thread."""
+        self.btn_submit.setEnabled(True)
+        self.btn_submit.setText("🚀 Submit Privately")
+        if success:
+            QMessageBox.information(
+                self,
+                "Report Sent",
+                "Thank you! Your diagnostic report was submitted privately to project maintainers.\n"
+                "No personal files or paths were included.",
+            )
+            self.accept()
+        else:
+            QMessageBox.warning(
+                self,
+                "Submission Failed",
+                f"Could not submit report: {msg}\n\n"
+                "You can alternatively use 'Copy for GitHub' to submit the report manually.",
+            )

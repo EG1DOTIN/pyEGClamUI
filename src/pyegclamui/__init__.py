@@ -4,7 +4,7 @@ Developed by EG1 & Community Contributors.
 Licensed under GPL-3.0-or-later.
 """
 
-__version__ = "3.2.0"
+__version__ = "3.2.1"
 __author__ = "EG1 ( eg1.in ) "
 __license__ = "GPL-3.0-or-later"
 

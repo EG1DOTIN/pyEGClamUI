@@ -5,6 +5,7 @@ Provides tabs for Status, Scanning, Quarantine Vault, Settings, and About/Credit
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -109,6 +110,9 @@ class StatusRefreshWorker(QThread):
 class MainWindow(QMainWindow):
     """Main desktop interface window."""
 
+    _real_time_threat_signal = Signal(dict)
+    _telemetry_test_signal = Signal(bool, str)
+
     def __init__(self):
         super().__init__()
         self.config = Config.get_instance()
@@ -121,6 +125,9 @@ class MainWindow(QMainWindow):
         self._daemon_worker = None
         self._status_worker: Optional[StatusRefreshWorker] = None
         self._refresh_pending: bool = False
+
+        self._real_time_threat_signal.connect(self._handle_real_time_threat_ui)
+        self._telemetry_test_signal.connect(self._handle_telemetry_test_result)
 
         self.setWindowTitle("pyEGClamUI - Status")
         self.resize(920, 640)
@@ -193,11 +200,21 @@ class MainWindow(QMainWindow):
         msg.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         msg.exec()
         if msg.clickedButton() == btn_exit:
+            self._stop_background_workers()
             if self.guard:
                 self.guard.stop()
             if self.tray:
                 self.tray.hide()
             QApplication.instance().quit()
+
+    def _stop_background_workers(self):
+        """Stops active QThread workers safely before window/app shutdown."""
+        for worker in (self._status_worker, self._daemon_worker):
+            if worker and worker.isRunning():
+                worker.quit()
+                if not worker.wait(500):
+                    worker.terminate()
+                    worker.wait(500)
 
     def setup_ui(self):
         central_widget = QWidget()
@@ -276,7 +293,7 @@ class MainWindow(QMainWindow):
         self.update_btn.setIcon(IconFactory.get_icon("refresh", "#ffffff", 14))
         self.update_btn.setIconSize(QSize(14, 14))
         self.update_btn.setCursor(Qt.PointingHandCursor)
-        self.update_btn.clicked.connect(self.on_check_updates_clicked)
+        self.update_btn.clicked.connect(self.on_banner_action_clicked)
         banner_layout.addWidget(self.update_btn)
 
         layout.addWidget(self.banner_card)
@@ -705,13 +722,13 @@ class MainWindow(QMainWindow):
                 self,
                 "Signatures Missing",
                 "ClamAV engine is installed, but virus definitions (VSD) have not been downloaded yet.\n\n"
-                "Would you like to open the Update tab and download signatures now?",
+                "Would you like to download virus signatures now?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
             if reply == QMessageBox.Yes:
-                self.tabs.setCurrentIndex(1)  # Updates tab
-                self.on_update_clicked()
+                self.tabs.setCurrentIndex(0)  # Status tab
+                self.on_check_updates_clicked()
             return False
 
         return True
@@ -744,7 +761,7 @@ class MainWindow(QMainWindow):
     def on_memory_scan_clicked(self):
         if not self._ensure_engine_ready():
             return
-        temp_dir = os.getenv("TEMP", str(Path.home()))
+        temp_dir = os.getenv("TEMP") or tempfile.gettempdir()
         dlg = ScanDialog(self, ScanType.MEMORY_SCAN, [temp_dir])
         dlg.exec()
         self.refresh_quarantine_table()
@@ -814,33 +831,37 @@ class MainWindow(QMainWindow):
 
     def refresh_quarantine_table(self):
         items = self.quarantine_mgr.list_items()
-        self.quarantine_table.setRowCount(0)
+        self.quarantine_table.setUpdatesEnabled(False)
+        try:
+            self.quarantine_table.setRowCount(0)
 
-        for row, item in enumerate(items):
-            self.quarantine_table.insertRow(row)
+            for row, item in enumerate(items):
+                self.quarantine_table.insertRow(row)
 
-            # Store item id on column 0 item
-            name_item = QTableWidgetItem(item.filename)
-            name_item.setData(Qt.UserRole, item.item_id)
+                # Store item id on column 0 item
+                name_item = QTableWidgetItem(item.filename)
+                name_item.setData(Qt.UserRole, item.item_id)
 
-            threat_item = QTableWidgetItem(item.threat_name)
-            threat_item.setForeground(Qt.red)
+                threat_item = QTableWidgetItem(item.threat_name)
+                threat_item.setForeground(Qt.red)
 
-            path_item = QTableWidgetItem(item.original_path)
-            date_item = QTableWidgetItem(item.quarantine_date)
+                path_item = QTableWidgetItem(item.original_path)
+                date_item = QTableWidgetItem(item.quarantine_date)
 
-            size_kb = round(item.file_size_bytes / 1024, 1)
-            size_item = QTableWidgetItem(f"{size_kb} KB")
+                size_kb = round(item.file_size_bytes / 1024, 1)
+                size_item = QTableWidgetItem(f"{size_kb} KB")
 
-            # Explicitly strip editable flag so cell editing is completely stopped
-            for col_item in [name_item, threat_item, path_item, date_item, size_item]:
-                col_item.setFlags(col_item.flags() & ~Qt.ItemIsEditable)
+                # Explicitly strip editable flag so cell editing is completely stopped
+                for col_item in [name_item, threat_item, path_item, date_item, size_item]:
+                    col_item.setFlags(col_item.flags() & ~Qt.ItemIsEditable)
 
-            self.quarantine_table.setItem(row, 0, name_item)
-            self.quarantine_table.setItem(row, 1, threat_item)
-            self.quarantine_table.setItem(row, 2, path_item)
-            self.quarantine_table.setItem(row, 3, date_item)
-            self.quarantine_table.setItem(row, 4, size_item)
+                self.quarantine_table.setItem(row, 0, name_item)
+                self.quarantine_table.setItem(row, 1, threat_item)
+                self.quarantine_table.setItem(row, 2, path_item)
+                self.quarantine_table.setItem(row, 3, date_item)
+                self.quarantine_table.setItem(row, 4, size_item)
+        finally:
+            self.quarantine_table.setUpdatesEnabled(True)
 
     def on_restore_selected(self):
         row = self.quarantine_table.currentRow()
@@ -1301,14 +1322,19 @@ class MainWindow(QMainWindow):
     def on_reconfigure_engine_clicked(self):
         dlg = ClamSetupDialog(self)
         if dlg.exec():
-            audit = self.detector.inspect()
+            self.detector.invalidate_cache()
+            audit = self.detector.inspect(force=True)
             clamscan_path = audit.get("clamscan_path") or "Not configured"
+            clamdscan_path = audit.get("clamdscan_path") or "Not found"
             if hasattr(self, "lbl_settings_engine_status"):
-                self.lbl_settings_engine_status.setText(f"Active ClamScan: {clamscan_path}")
+                self.lbl_settings_engine_status.setText(
+                    f"Active ClamScan: {clamscan_path} | ClamDScan: {clamdscan_path}"
+                )
             self.txt_clamscan_path.setText(self.config.get("scan_settings", "custom_clamscan_path", "") or "")
+            self.txt_clamdscan_path.setText(self.config.get("scan_settings", "custom_clamdscan_path", "") or "")
             self.txt_clamd_path.setText(self.config.get("scan_settings", "custom_clamd_path", "") or "")
             self.txt_freshclam_path.setText(self.config.get("scan_settings", "custom_freshclam_path", "") or "")
-            self.refresh_status()
+            self.refresh_status(force=True)
 
     def on_browse_clamscan(self):
         file, _ = QFileDialog.getOpenFileName(self, "Select clamscan executable", "", "Executables (*.exe);;All Files (*)")
@@ -1394,18 +1420,15 @@ class MainWindow(QMainWindow):
 
         self.btn_test_telem.setEnabled(False)
         self.btn_test_telem.setText("Sending...")
+        self.telemetry_mgr.send_telemetry_async(on_complete=self._telemetry_test_signal.emit)
 
-        def on_done(success: bool, msg: str):
-            def update_ui():
-                self.btn_test_telem.setEnabled(True)
-                self.btn_test_telem.setText("Send Test Report")
-                if success:
-                    QMessageBox.information(self, "Telemetry Status", f"Success: {msg}")
-                else:
-                    QMessageBox.warning(self, "Telemetry Status", f"Submission Result: {msg}")
-            QTimer.singleShot(0, update_ui)
-
-        self.telemetry_mgr.send_telemetry_async(on_complete=on_done)
+    def _handle_telemetry_test_result(self, success: bool, msg: str):
+        self.btn_test_telem.setEnabled(True)
+        self.btn_test_telem.setText("Send Test Report")
+        if success:
+            QMessageBox.information(self, "Telemetry Status", f"Success: {msg}")
+        else:
+            QMessageBox.warning(self, "Telemetry Status", f"Submission Result: {msg}")
 
     def on_reset_defaults_clicked(self):
         confirm = QMessageBox.question(
@@ -1438,9 +1461,15 @@ class MainWindow(QMainWindow):
             self.txt_include_ext.setText(", ".join(includes) if isinstance(includes, list) else str(includes))
 
             self.txt_clamscan_path.setText("")
+            self.txt_clamdscan_path.setText("")
             self.txt_clamd_path.setText("")
             self.txt_freshclam_path.setText("")
-            self.txt_clamd_socket.setText("127.0.0.1:3310")
+            default_socket = (
+                "127.0.0.1:3310"
+                if sys.platform == "win32"
+                else scan.get("clamd_unix_socket", "/var/run/clamav/clamd.ctl")
+            )
+            self.txt_clamd_socket.setText(default_socket)
 
             home = Path.home()
             self.txt_watch_slot1.setText(str(home / "Desktop"))
@@ -1452,9 +1481,12 @@ class MainWindow(QMainWindow):
             self.chk_share_scan_stats.setChecked(True)
 
             if hasattr(self, "lbl_settings_engine_status"):
-                audit = self.detector.inspect()
+                audit = self.detector.inspect(force=True)
                 clamscan_path = audit.get("clamscan_path") or "Not configured"
-                self.lbl_settings_engine_status.setText(f"Active ClamScan: {clamscan_path}")
+                clamdscan_path = audit.get("clamdscan_path") or "Not found"
+                self.lbl_settings_engine_status.setText(
+                    f"Active ClamScan: {clamscan_path} | ClamDScan: {clamdscan_path}"
+                )
 
             self.on_save_settings_clicked()
 
@@ -1584,14 +1616,17 @@ class MainWindow(QMainWindow):
 
         socket_txt = self.txt_clamd_socket.text().strip()
         if ":" in socket_txt:
-            parts = socket_txt.split(":")
-            self.config.set("scan_settings", "clamd_tcp_host", parts[0])
+            host_part, port_part = socket_txt.rsplit(":", 1)
+            self.config.set("scan_settings", "clamd_tcp_host", host_part.strip("[] "))
+            self.config.set("scan_settings", "clamd_unix_socket", "")
             try:
-                self.config.set("scan_settings", "clamd_tcp_port", int(parts[1]))
+                self.config.set("scan_settings", "clamd_tcp_port", int(port_part.strip()))
             except ValueError:
                 pass
         elif socket_txt:
             self.config.set("scan_settings", "clamd_unix_socket", socket_txt)
+        else:
+            self.config.set("scan_settings", "clamd_unix_socket", "")
 
         # Monitored Folders (Max 2)
         slot1 = self.txt_watch_slot1.text().strip()
@@ -1623,7 +1658,7 @@ class MainWindow(QMainWindow):
         if self.tray and hasattr(self.tray, "set_protection_state"):
             self.tray.set_protection_state(self.guard.is_active)
 
-        self.refresh_status()
+        self.refresh_status(force=True)
         log_settings_change("User updated settings via Settings tab")
         QMessageBox.information(self, "Settings Saved", "Your settings have been updated successfully.")
 
@@ -1743,7 +1778,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Screenshot Failed", f"Could not capture screenshot: {e}")
 
-    def on_check_updates_clicked(self):
+    def on_banner_action_clicked(self):
+        """Handles contextual primary action button on the Status banner."""
         audit = self.detector.inspect()
         if not audit.get("ready"):
             self.on_reconfigure_engine_clicked()
@@ -1754,9 +1790,18 @@ class MainWindow(QMainWindow):
             self.refresh_status()
             return
 
+        self.on_check_updates_clicked()
+
+    def on_check_updates_clicked(self):
+        """Opens the Global Update dialog (or engine setup if ClamAV is missing)."""
+        audit = self.detector.inspect()
+        if not audit.get("ready"):
+            self.on_reconfigure_engine_clicked()
+            return
+
         dialog = ClamGlobalUpdateDialog(self, updater=self.updater)
         dialog.exec()
-        self.refresh_status()
+        self.refresh_status(force=True)
 
     def on_daemon_action_clicked(self):
         d_status = self.service_mgr.get_status()
@@ -1785,7 +1830,7 @@ class MainWindow(QMainWindow):
             self.btn_daemon_action.setText("Loading DB into Memory...")
 
     def on_daemon_activation_finished(self, success: bool, msg: str):
-        self.refresh_status()
+        self.refresh_status(force=True)
         if success:
             QMessageBox.information(
                 self,
@@ -1809,6 +1854,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Update Failed", msg)
 
     def on_real_time_threat(self, threat_info: dict):
+        """Thread-safe entrypoint for Real-Time Guard threat notifications."""
+        self._real_time_threat_signal.emit(threat_info)
+
+    def _handle_real_time_threat_ui(self, threat_info: dict):
+        """Updates tray, modal alert, and quarantine table on the Qt main thread."""
         threat_name = threat_info.get("threat", "Unknown Threat")
         file_path = threat_info.get("path", "Unknown File")
         action = threat_info.get("action", "Isolated")
@@ -1821,11 +1871,11 @@ class MainWindow(QMainWindow):
             )
 
         if self.isVisible():
-            QTimer.singleShot(0, lambda: QMessageBox.critical(
+            QMessageBox.critical(
                 self,
                 "Real-Time Threat Detected!",
-                f"Threat detected: {threat_name}\nFile: {file_path}\nAction taken: {action}"
-            ))
+                f"Threat detected: {threat_name}\nFile: {file_path}\nAction taken: {action}",
+            )
         self.refresh_quarantine_table()
 
     def closeEvent(self, event):
@@ -1840,11 +1890,7 @@ class MainWindow(QMainWindow):
                     is_warning=False,
                 )
         else:
-            if self._status_worker and self._status_worker.isRunning():
-                self._status_worker.quit()
-                if not self._status_worker.wait(500):
-                    self._status_worker.terminate()
-                    self._status_worker.wait(500)
+            self._stop_background_workers()
             if self.guard:
                 self.guard.stop()
             super().closeEvent(event)

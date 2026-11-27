@@ -49,6 +49,16 @@ def test_daemon_parse_response_line_empty():
     assert parsed["status"] == "EMPTY"
 
 
+def test_daemon_parse_response_line_null_terminated():
+    parsed_ok = ClamDaemonClient.parse_response_line("stream: OK\x00")
+    assert parsed_ok["status"] == "OK"
+    assert parsed_ok["path"] == "stream"
+
+    parsed_found = ClamDaemonClient.parse_response_line("stream: Eicar-Test-Signature FOUND\x00")
+    assert parsed_found["status"] == "FOUND"
+    assert parsed_found["threat"] == "Eicar-Test-Signature"
+
+
 def test_daemon_standard_sockets_defined():
     client = ClamDaemonClient()
     assert len(client.STANDARD_UNIX_SOCKETS) >= 5

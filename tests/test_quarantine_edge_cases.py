@@ -82,3 +82,18 @@ def test_delete_nonexistent_item():
         success, msg = mgr.delete_item("nonexistent_id_9999")
         assert not success
         assert "not found" in msg
+
+
+def test_quarantine_empty_item_id_does_not_match():
+    with tempfile.TemporaryDirectory() as vault_dir:
+        mgr = QuarantineManager(quarantine_dir=Path(vault_dir))
+        target = Path(vault_dir) / "sample.bin"
+        target.write_text("payload", encoding="utf-8")
+        item = mgr.quarantine_file(str(target), "Test.Threat")
+        assert item is not None
+
+        ok_del, _ = mgr.delete_item("")
+        ok_res, _ = mgr.restore_item("")
+        assert not ok_del
+        assert not ok_res
+        assert len(mgr.list_items()) == 1

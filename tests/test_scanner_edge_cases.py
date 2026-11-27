@@ -88,3 +88,41 @@ def test_scan_empty_targets():
     report = scanner.scan(scan_type="Custom Scan", targets=[])
     assert not report.cancelled
     assert "No target paths" in report.summary_text
+
+
+def test_build_clamscan_args_no_duplicate_max_filesize(monkeypatch):
+    scanner = ClamScanner()
+    monkeypatch.setattr(scanner.detector, "get_clamscan_path", lambda: "/usr/bin/clamscan")
+    args = scanner.build_clamscan_args(["/tmp/target"])
+    filesize_flags = [a for a in args if a.startswith("--max-filesize=")]
+    assert len(filesize_flags) == 1
+
+
+def test_scan_clamdscan_oserror_falls_back_to_clamscan(monkeypatch):
+    from unittest.mock import MagicMock
+
+    scanner = ClamScanner()
+    monkeypatch.setattr(scanner.detector, "check_daemon_socket", lambda: (True, "TCP (127.0.0.1:3310)"))
+    monkeypatch.setattr(scanner.detector, "get_clamdscan_path", lambda: "C:/ClamAV/clamdscan.exe")
+    monkeypatch.setattr(scanner.detector, "get_clamscan_path", lambda: "C:/ClamAV/clamscan.exe")
+    monkeypatch.setattr("pyegclamui.core.scanner.log_scan_report", lambda **kw: None)
+
+    call_cmds = []
+
+    def fake_spawn(cmd, **kwargs):
+        call_cmds.append(cmd[0])
+        if "clamdscan" in cmd[0]:
+            err = OSError("Incompatible")
+            err.winerror = 216
+            raise err
+        proc = MagicMock()
+        proc.stdout.readline.side_effect = ["/tmp/clean.txt: OK\n", "Scanned files: 1\n", ""]
+        proc.returncode = 0
+        return proc
+
+    monkeypatch.setattr("pyegclamui.core.scanner.spawn_hidden_process", fake_spawn)
+
+    report = scanner.scan(scan_type="Quick Scan", targets=["/tmp/clean.txt"], prefer_daemon=True)
+    assert len(call_cmds) == 2
+    assert report.scanned_files == 1
+    assert report.errors_count == 0

@@ -14,7 +14,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pyegclamui.core.config import AppPaths, Config
 from pyegclamui.core.daemon import ClamDaemonClient
-from pyegclamui.core.process import run_hidden_process
+from pyegclamui.core.process import (
+    format_subprocess_os_error,
+    is_compatible_windows_binary,
+    run_hidden_process,
+)
 
 
 class ClamEngineDetector:
@@ -73,33 +77,51 @@ class ClamEngineDetector:
             Path("/opt/local/sbin"),
         ]
 
+    @staticmethod
+    def _is_usable_executable(candidate: Path) -> bool:
+        """Checks file existence, execute permission, and Windows PE compatibility."""
+        if not candidate.is_file():
+            return False
+        if sys.platform == "win32":
+            ok, _ = is_compatible_windows_binary(candidate)
+            return ok
+        return os.access(candidate, os.X_OK)
+
     def find_executable(self, binary_name: str, custom_key: Optional[str] = None) -> Optional[str]:
         """Locates an executable in custom config, system PATH, or standard OS directories."""
+        ext = ".exe" if sys.platform == "win32" else ""
+        bin_with_ext = binary_name + ext
+
         # 1. Check custom path in config
         if custom_key:
             custom_path = self.config.get("scan_settings", custom_key)
-            if custom_path and Path(custom_path).is_file() and os.access(custom_path, os.X_OK):
-                return str(Path(custom_path).resolve())
+            if custom_path:
+                cand = Path(custom_path)
+                if self._is_usable_executable(cand):
+                    return str(cand.resolve())
 
-        # 2. Check system PATH
-        ext = ".exe" if sys.platform == "win32" else ""
-        bin_with_ext = binary_name + ext
-        found = shutil.which(bin_with_ext) or shutil.which(binary_name)
+        # 2. Check system PATH (on Windows, require .exe match first so scripts aren't picked)
+        found = shutil.which(bin_with_ext)
+        if not found and sys.platform != "win32":
+            found = shutil.which(binary_name)
         if found:
-            return str(Path(found).resolve())
+            cand = Path(found)
+            if self._is_usable_executable(cand):
+                return str(cand.resolve())
 
         # 3. Check standard Windows directories
         if sys.platform == "win32":
             for base in self.get_standard_windows_paths():
                 candidate = base / bin_with_ext
-                if candidate.is_file():
+                if self._is_usable_executable(candidate):
                     return str(candidate.resolve())
 
         # 4. Check common Unix and macOS directories
-        for base in self.get_standard_unix_paths():
-            candidate = base / binary_name
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                return str(candidate.resolve())
+        if sys.platform != "win32":
+            for base in self.get_standard_unix_paths():
+                candidate = base / binary_name
+                if self._is_usable_executable(candidate):
+                    return str(candidate.resolve())
 
         return None
 
@@ -132,17 +154,32 @@ class ClamEngineDetector:
             ])
         return dirs
 
+    @staticmethod
+    def _dir_has_signatures(db_dir: Path) -> bool:
+        """Fast directory scan checking for valid .cvd/.cld database files (> 1 KB)."""
+        if not db_dir.is_dir():
+            return False
+        try:
+            with os.scandir(db_dir) as entries:
+                for entry in entries:
+                    name_lower = entry.name.lower()
+                    if (name_lower.endswith(".cvd") or name_lower.endswith(".cld")) and entry.is_file():
+                        if entry.stat().st_size > 1000:
+                            return True
+        except (PermissionError, OSError):
+            return False
+        return False
+
+    def get_active_database_dir(self) -> Optional[Path]:
+        """Returns the first directory containing valid ClamAV virus signatures."""
+        for d in self.get_standard_database_directories():
+            if self._dir_has_signatures(d):
+                return d
+        return None
+
     def has_virus_signatures(self) -> bool:
         """Checks whether valid ClamAV virus signature databases (.cvd, .cld) are present."""
-        for d in self.get_standard_database_directories():
-            if d.is_dir():
-                try:
-                    for f in d.iterdir():
-                        if f.is_file() and f.suffix.lower() in (".cvd", ".cld") and f.stat().st_size > 1000:
-                            return True
-                except (PermissionError, OSError):
-                    continue
-        return False
+        return self.get_active_database_dir() is not None
 
     def get_clamscan_path(self) -> Optional[str]:
         return self.find_executable("clamscan", "custom_clamscan_path")
@@ -189,10 +226,10 @@ class ClamEngineDetector:
             return res
 
         try:
-            db_dir = AppPaths.get_database_dir()
+            active_db_dir = self.get_active_database_dir()
             cmd = [clamscan, "--version"]
-            if db_dir.is_dir() and any(db_dir.glob("*.c*d")):
-                cmd.extend(["--database", str(db_dir.resolve())])
+            if active_db_dir is not None:
+                cmd.extend(["--database", str(active_db_dir.resolve())])
 
             result = run_hidden_process(
                 cmd,
@@ -203,9 +240,10 @@ class ClamEngineDetector:
             raw = result.stdout.strip() or result.stderr.strip()
             # Typical format: "ClamAV 1.4.1/27584/Mon Sep 21 08:30:00 2026"
             parts = raw.split("/")
-            clamav_ver = parts[0].strip() if len(parts) > 0 else "ClamAV"
-            db_ver = parts[1].strip() if len(parts) > 1 else "Unknown"
-            has_sigs = self.has_virus_signatures()
+            clamav_ver = parts[0].strip() if len(parts) > 0 and parts[0].strip() else "ClamAV"
+            db_ver = parts[1].strip() if len(parts) > 1 and parts[1].strip() else "Unknown"
+            db_date = parts[2].strip() if len(parts) > 2 and parts[2].strip() else "Unknown"
+            has_sigs = active_db_dir is not None
             if not has_sigs and (db_ver in ("Unknown", "0", "") or "No supported database" in raw):
                 db_ver = "Missing (Update Required)"
                 db_date = "Run FreshClam"
@@ -216,7 +254,18 @@ class ClamEngineDetector:
                 "db_version": db_ver,
                 "db_date": db_date,
                 "has_signatures": has_sigs,
-                "raw": raw
+                "raw": raw,
+            }
+        except OSError as e:
+            err_msg = format_subprocess_os_error(e, Path(clamscan).name)
+            is_incompatible = getattr(e, "winerror", None) == 216
+            res = {
+                "installed": not is_incompatible,
+                "clamav_version": "Incompatible Binary" if is_incompatible else "ClamAV",
+                "db_version": "Error",
+                "db_date": "Error" if is_incompatible else err_msg,
+                "has_signatures": False,
+                "raw": f"Failed to query clamscan: {err_msg}",
             }
         except Exception as e:
             res = {
@@ -225,7 +274,7 @@ class ClamEngineDetector:
                 "db_version": "Error",
                 "db_date": str(e),
                 "has_signatures": False,
-                "raw": f"Failed to query clamscan: {e}"
+                "raw": f"Failed to query clamscan: {e}",
             }
 
         self._cached_version = (now, res)
@@ -245,10 +294,16 @@ class ClamEngineDetector:
         freshclam = self.get_freshclam_path()
         daemon_online, daemon_conn = self.check_daemon_socket()
         version_info = self.get_engine_version(force=force)
-        has_signatures = self.has_virus_signatures()
+        # Reuse signature scan from get_engine_version when clamscan was queried
+        has_signatures = (
+            bool(version_info.get("has_signatures"))
+            if clamscan
+            else self.has_virus_signatures()
+        )
+        engine_usable = bool(version_info.get("installed", True)) if clamscan else False
 
         res = {
-            "clamscan_path": clamscan,
+            "clamscan_path": clamscan if engine_usable else None,
             "clamdscan_path": clamdscan,
             "clamd_path": clamd,
             "freshclam_path": freshclam,
@@ -256,8 +311,10 @@ class ClamEngineDetector:
             "daemon_connection": daemon_conn,
             "version": version_info,
             "has_signatures": has_signatures,
-            "ready": bool(clamscan or clamdscan or daemon_online),
-            "fully_operational": bool((clamscan or clamdscan or daemon_online) and has_signatures),
+            "ready": bool((clamscan and engine_usable) or clamdscan or daemon_online),
+            "fully_operational": bool(
+                ((clamscan and engine_usable) or clamdscan or daemon_online) and has_signatures
+            ),
         }
         self._cached_inspect = (now, res)
         return res

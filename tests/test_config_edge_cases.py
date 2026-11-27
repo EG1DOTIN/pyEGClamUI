@@ -23,6 +23,10 @@ def test_config_deep_merge_partial_data():
     assert merged["preferences"]["notifications"] is True
     assert merged["version"] == "1.0.0"
 
+    # Mutating merged nested structures must not mutate default
+    merged["preferences"]["theme"] = "custom"
+    assert default["preferences"]["theme"] == "dark"
+
 
 def test_config_get_missing_nested_key():
     config = Config.get_instance()

@@ -72,6 +72,11 @@ class QuarantineManager:
     def __init__(self, quarantine_dir: Optional[Path] = None):
         self.quarantine_dir = quarantine_dir or AppPaths.get_quarantine_dir()
         self.quarantine_dir.mkdir(parents=True, exist_ok=True)
+        if os.name != "nt":
+            try:
+                os.chmod(self.quarantine_dir, 0o700)
+            except OSError:
+                pass
 
     def quarantine_file(self, file_path: str, threat_name: str = "Threat.Detected") -> Optional[QuarantineItem]:
         """
@@ -90,12 +95,15 @@ class QuarantineManager:
             dest_file = self.quarantine_dir / safe_name
             dest_meta = self.quarantine_dir / metadata_name
 
-            # 1. Compute SHA-256 hash before moving
-            sha256_hash = hashlib.sha256()
+            # 1. Compute SHA-256 hash before moving (use C-level file_digest on Python 3.11+)
             with open(src, "rb") as f:
-                for chunk in iter(lambda: f.read(65536), b""):
-                    sha256_hash.update(chunk)
-            file_hash = sha256_hash.hexdigest()
+                if hasattr(hashlib, "file_digest"):
+                    file_hash = hashlib.file_digest(f, "sha256").hexdigest()
+                else:
+                    sha256_hash = hashlib.sha256()
+                    for chunk in iter(lambda: f.read(65536), b""):
+                        sha256_hash.update(chunk)
+                    file_hash = sha256_hash.hexdigest()
             file_size = src.stat().st_size
 
             # 2. Move file safely into quarantine directory
@@ -137,65 +145,78 @@ class QuarantineManager:
         items.sort(key=lambda x: x.quarantine_date, reverse=True)
         return items
 
+    def _find_meta_path(self, item_id: str) -> Optional[Tuple[Path, QuarantineItem]]:
+        """Finds exact metadata file and item matching item_id without glob wildcard risks."""
+        if not item_id:
+            return None
+        for meta_path in self.quarantine_dir.glob("*.json"):
+            if not meta_path.name.startswith(f"{item_id}_"):
+                continue
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                item = QuarantineItem.from_dict(data)
+                if item.item_id == item_id:
+                    return meta_path, item
+            except Exception:
+                continue
+        return None
+
     def restore_item(self, item_id: str, overwrite: bool = False) -> Tuple[bool, str]:
         """
         Restores a quarantined file back to its original location.
         Returns: (success, message)
         """
-        for meta_path in self.quarantine_dir.glob(f"{item_id}_*.json"):
-            try:
-                with open(meta_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                item = QuarantineItem.from_dict(data)
+        found = self._find_meta_path(item_id)
+        if not found:
+            return False, f"Item {item_id} not found in quarantine."
 
-                src_quarantine = self.quarantine_dir / item.quarantined_filename
-                dest_original = Path(item.original_path)
+        meta_path, item = found
+        try:
+            src_quarantine = self.quarantine_dir / item.quarantined_filename
+            dest_original = Path(item.original_path)
 
-                if not src_quarantine.exists():
-                    return False, f"Quarantined data file missing: {item.quarantined_filename}"
+            if not src_quarantine.exists():
+                return False, f"Quarantined data file missing: {item.quarantined_filename}"
 
-                # Ensure parent destination directory exists
-                dest_original.parent.mkdir(parents=True, exist_ok=True)
+            # Ensure parent destination directory exists
+            dest_original.parent.mkdir(parents=True, exist_ok=True)
 
-                if dest_original.exists():
-                    if overwrite:
-                        try:
-                            dest_original.unlink()
-                        except Exception as e:
-                            return False, f"Cannot overwrite existing destination: {e}"
-                    else:
-                        return False, f"Destination file already exists: {dest_original}"
+            if dest_original.exists():
+                if overwrite:
+                    try:
+                        dest_original.unlink()
+                    except Exception as e:
+                        return False, f"Cannot overwrite existing destination: {e}"
+                else:
+                    return False, f"Destination file already exists: {dest_original}"
 
-                # Move back
-                shutil.move(str(src_quarantine), str(dest_original))
+            # Move back
+            shutil.move(str(src_quarantine), str(dest_original))
 
-                # Delete metadata
-                meta_path.unlink(missing_ok=True)
-                return True, f"Restored to {dest_original}"
-            except Exception as e:
-                return False, f"Error restoring: {e}"
-
-        return False, f"Item {item_id} not found in quarantine."
+            # Delete metadata
+            meta_path.unlink(missing_ok=True)
+            return True, f"Restored to {dest_original}"
+        except Exception as e:
+            return False, f"Error restoring: {e}"
 
     def delete_item(self, item_id: str) -> Tuple[bool, str]:
         """
         Permanently deletes a file and its metadata from quarantine vault.
         """
-        for meta_path in self.quarantine_dir.glob(f"{item_id}_*.json"):
-            try:
-                with open(meta_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                item = QuarantineItem.from_dict(data)
+        found = self._find_meta_path(item_id)
+        if not found:
+            return False, f"Item {item_id} not found in quarantine."
 
-                src_quarantine = self.quarantine_dir / item.quarantined_filename
-                if src_quarantine.exists():
-                    src_quarantine.unlink()
-                meta_path.unlink(missing_ok=True)
-                return True, f"Deleted {item.filename} from quarantine."
-            except Exception as e:
-                return False, f"Error deleting: {e}"
-
-        return False, f"Item {item_id} not found in quarantine."
+        meta_path, item = found
+        try:
+            src_quarantine = self.quarantine_dir / item.quarantined_filename
+            if src_quarantine.exists():
+                src_quarantine.unlink()
+            meta_path.unlink(missing_ok=True)
+            return True, f"Deleted {item.filename} from quarantine."
+        except Exception as e:
+            return False, f"Error deleting: {e}"
 
     def clear_vault(self) -> int:
         """Removes all files from quarantine. Returns count of deleted items."""

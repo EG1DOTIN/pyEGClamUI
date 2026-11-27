@@ -67,9 +67,13 @@ class ClamDaemonClient:
         host = self.tcp_host or self.config.get(
             "scan_settings", "clamd_tcp_host", default="127.0.0.1"
         )
-        port = self.tcp_port or int(
-            self.config.get("scan_settings", "clamd_tcp_port", default=3310)
+        raw_port = self.tcp_port if self.tcp_port is not None else self.config.get(
+            "scan_settings", "clamd_tcp_port", default=3310
         )
+        try:
+            port = int(raw_port)
+        except (TypeError, ValueError):
+            port = 3310
         return None, (host, port)
 
     def _create_socket(self, timeout: Optional[float] = None) -> socket.socket:
@@ -177,7 +181,7 @@ class ClamDaemonClient:
           '/path/to/file: Eicar-Test-Signature FOUND'
           '/path/to/file: Can't open file ERROR'
         """
-        line = line.strip()
+        line = line.strip(" \t\r\n\x00")
         if not line:
             return {"status": "EMPTY", "path": "", "threat": "", "error": ""}
 
@@ -186,7 +190,7 @@ class ClamDaemonClient:
             return {"status": "RAW", "path": "", "raw": line}
 
         file_path = parts[0].strip()
-        result_part = parts[1].strip()
+        result_part = parts[1].strip(" \t\r\n\x00")
 
         if result_part == "OK":
             return {"status": "OK", "path": file_path, "threat": "", "error": ""}
@@ -199,64 +203,45 @@ class ClamDaemonClient:
 
         return {"status": "UNKNOWN", "path": file_path, "raw": result_part}
 
+    def _run_scan_command(self, cmd_verb: str, target_path: Union[str, Path]) -> List[Dict[str, Any]]:
+        """Executes a path-based clamd scan command and parses streaming newline responses."""
+        path_str = str(Path(target_path).resolve())
+        cmd = f"{cmd_verb} {path_str}\n"
+
+        results: List[Dict[str, Any]] = []
+        try:
+            with self._create_socket() as s:
+                s.settimeout(max(self.timeout, 60.0))
+                s.sendall(cmd.encode("utf-8"))
+                chunks: List[str] = []
+                while True:
+                    data = s.recv(16384)
+                    if not data:
+                        break
+                    chunks.append(data.decode("utf-8", errors="replace"))
+                full_output = "".join(chunks)
+                for line in full_output.splitlines():
+                    if line.strip(" \t\r\n\x00"):
+                        results.append(self.parse_response_line(line))
+        except (OSError, ConnectionError, socket.timeout) as e:
+            results.append({"status": "ERROR", "path": path_str, "error": str(e)})
+
+        return results
+
     def scan_path(self, target_path: Union[str, Path], contscan: bool = True) -> List[Dict[str, Any]]:
         """
         Instructs clamd to scan a file or directory path on the local filesystem.
         Uses CONTSCAN (scans whole directory without stopping on first infected file)
         or SCAN (stops on first infected file).
         """
-        path_str = str(Path(target_path).resolve())
         cmd_verb = "CONTSCAN" if contscan else "SCAN"
-        cmd = f"{cmd_verb} {path_str}\n"
-
-        results = []
-        try:
-            with self._create_socket() as s:
-                s.sendall(cmd.encode("utf-8"))
-                buffer = ""
-                while True:
-                    chunk = s.recv(4096).decode("utf-8", errors="replace")
-                    if not chunk:
-                        break
-                    buffer += chunk
-                    while "\n" in buffer:
-                        line, buffer = buffer.split("\n", 1)
-                        if line.strip():
-                            results.append(self.parse_response_line(line))
-                if buffer.strip():
-                    results.append(self.parse_response_line(buffer))
-        except (OSError, ConnectionError, socket.timeout) as e:
-            results.append({"status": "ERROR", "path": path_str, "error": str(e)})
-
-        return results
+        return self._run_scan_command(cmd_verb, target_path)
 
     def multiscan(self, target_path: Union[str, Path]) -> List[Dict[str, Any]]:
         """
         Uses MULTISCAN to scan directory trees concurrently with all available clamd threads.
         """
-        path_str = str(Path(target_path).resolve())
-        cmd = f"MULTISCAN {path_str}\n"
-
-        results = []
-        try:
-            with self._create_socket() as s:
-                s.sendall(cmd.encode("utf-8"))
-                buffer = ""
-                while True:
-                    chunk = s.recv(4096).decode("utf-8", errors="replace")
-                    if not chunk:
-                        break
-                    buffer += chunk
-                    while "\n" in buffer:
-                        line, buffer = buffer.split("\n", 1)
-                        if line.strip():
-                            results.append(self.parse_response_line(line))
-                if buffer.strip():
-                    results.append(self.parse_response_line(buffer))
-        except (OSError, ConnectionError, socket.timeout) as e:
-            results.append({"status": "ERROR", "path": path_str, "error": str(e)})
-
-        return results
+        return self._run_scan_command("MULTISCAN", target_path)
 
     def scan_stream(
         self, data_source: Union[bytes, BinaryIO], chunk_size: int = 4096

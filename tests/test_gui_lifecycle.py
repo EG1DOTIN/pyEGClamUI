@@ -220,3 +220,43 @@ def test_status_refresh_worker(main_win, qapp):
     qapp.processEvents()
 
 
+def test_ensure_engine_ready_missing_signatures_opens_updates(main_win, monkeypatch):
+    """Regression test for AttributeError: 'MainWindow' object has no attribute 'on_update_clicked'."""
+    from PySide6.QtWidgets import QMessageBox
+
+    win = main_win
+    monkeypatch.setattr(win.detector, "get_clamscan_path", lambda: "/usr/bin/clamscan")
+    monkeypatch.setattr(win.detector, "check_daemon_socket", lambda: (False, "Offline"))
+    monkeypatch.setattr(win.detector, "has_virus_signatures", lambda: False)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **kw: QMessageBox.Yes)
+
+    update_calls = []
+    monkeypatch.setattr(win, "on_check_updates_clicked", lambda: update_calls.append(True))
+
+    ready = win._ensure_engine_ready()
+    assert ready is False
+    assert win.tabs.currentIndex() == 0
+    assert update_calls == [True]
+
+
+def test_main_window_real_time_threat_thread_safe(main_win, qapp, monkeypatch):
+    """Verifies background thread threat notifications safely marshal to the Qt main thread."""
+    import threading
+    from PySide6.QtWidgets import QMessageBox
+
+    win = main_win
+    mock_tray = MagicMock()
+    win.set_tray(mock_tray)
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **kw: None)
+
+    t = threading.Thread(
+        target=win.on_real_time_threat,
+        args=({"threat": "EICAR", "path": "/tmp/eicar.com", "action": "Quarantined"},),
+    )
+    t.start()
+    t.join(timeout=2)
+    qapp.processEvents()
+
+    assert mock_tray.notify.called
+
+

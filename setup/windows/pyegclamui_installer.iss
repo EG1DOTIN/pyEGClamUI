@@ -4,7 +4,7 @@
 ; ==============================================================================
 
 #ifndef AppVersion
-  #define AppVersion "3.2.0"
+  #define AppVersion "3.2.1"
 #endif
 
 
@@ -35,7 +35,9 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
 UsedUserAreasWarning=no
+ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
+MinVersion=6.3
 DisableWelcomePage=no
 CloseApplications=force
 UninstallDisplayIcon={app}\src\pyegclamui\assets\egav.ico
