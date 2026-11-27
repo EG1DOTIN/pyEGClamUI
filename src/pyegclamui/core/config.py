@@ -3,9 +3,11 @@ Configuration manager for pyEGClamUI.
 Stores user settings and state in standard, human-readable JSON files.
 """
 
+import copy
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -16,10 +18,12 @@ class AppPaths:
     """Manages cross-platform standard directories for pyEGClamUI."""
 
     @staticmethod
-    def _safe_mkdir(path: Path) -> Path:
+    def _safe_mkdir(path: Path, restrict_perms: bool = False) -> Path:
         """Safely attempts to create directories without crashing on read-only environments."""
         try:
             path.mkdir(parents=True, exist_ok=True)
+            if restrict_perms and os.name != "nt":
+                os.chmod(path, 0o700)
         except OSError:
             pass
         return path
@@ -65,7 +69,7 @@ class AppPaths:
     def get_quarantine_dir() -> Path:
         """Returns directory where quarantined threats are safely stored."""
         path = AppPaths.get_data_dir() / "quarantine"
-        return AppPaths._safe_mkdir(path)
+        return AppPaths._safe_mkdir(path, restrict_perms=True)
 
     @staticmethod
     def get_logs_dir() -> Path:
@@ -210,10 +214,22 @@ class Config:
 
 
     def save(self) -> None:
-        """Persists current configuration to JSON file."""
+        """Persists current configuration atomically to JSON file."""
         try:
-            with open(self.config_file, "w", encoding="utf-8") as f:
-                json.dump(self.data, f, indent=4, ensure_ascii=False)
+            self.config_file.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=".config_", suffix=".tmp", dir=str(self.config_file.parent)
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(self.data, f, indent=4, ensure_ascii=False)
+                os.replace(tmp_name, self.config_file)
+            except Exception:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+                raise
         except Exception as e:
             print(f"[Config] Failed to save {self.config_file}: {e}")
 
@@ -247,10 +263,10 @@ class Config:
 
     @staticmethod
     def _deep_merge(default: dict, override: dict) -> dict:
-        result = dict(default)
+        result = copy.deepcopy(default)
         for k, v in override.items():
             if k in result and isinstance(result[k], dict) and isinstance(v, dict):
                 result[k] = Config._deep_merge(result[k], v)
             else:
-                result[k] = v
+                result[k] = copy.deepcopy(v)
         return result

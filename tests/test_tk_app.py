@@ -449,6 +449,20 @@ def test_tkinter_app_scan_error_report():
         assert "Scan Error" in mock_err.call_args[0][0]
 
 
+def test_tkinter_app_launch_scan_missing_signatures():
+    """Regression test: missing signatures switches to tab_maintenance and calls _start_signature_update."""
+    mock_root = MagicMock()
+    app, mock_detector, _, _, _ = _create_test_app(mock_root)
+    mock_detector.has_virus_signatures.return_value = False
+
+    with patch.object(app, "_ask_yes_no", return_value=True), patch.object(
+        app, "_start_signature_update"
+    ) as mock_update:
+        app._launch_scan(["/tmp"], "Quick Scan")
+        app.notebook.select.assert_called_once_with(app.tab_maintenance)
+        mock_update.assert_called_once()
+
+
 if __name__ == "__main__":
     print("\n=== Running test_tk_app.py test suite ===")
     test_run_tkinter_app_when_tk_none()

@@ -12,9 +12,15 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
+from pyegclamui import __version__
 from pyegclamui.core.config import Config
 from pyegclamui.core.detector import ClamEngineDetector
-from pyegclamui.core.process import run_hidden_process, spawn_hidden_process
+from pyegclamui.core.process import (
+    format_subprocess_os_error,
+    is_windows_64bit_os,
+    run_hidden_process,
+    spawn_hidden_process,
+)
 
 
 class ClamEngineInstaller:
@@ -69,7 +75,19 @@ class ClamEngineInstaller:
                     if on_log:
                         on_log(f"[!] {fallback_msg}")
 
-            # Fallback to direct MSI download and install
+            # Fallback to direct MSI download and install (64-bit Windows only)
+            if not is_windows_64bit_os():
+                msg = (
+                    "32-bit Windows detected. The automatic fallback MSI is 64-bit only "
+                    "and incompatible with 32-bit Windows (WinError 216). Please install "
+                    "a 32-bit ClamAV release manually or via winget."
+                )
+                if on_status:
+                    on_status("Manual ClamAV installation required for 32-bit Windows.")
+                if on_log:
+                    on_log(f"[!] {msg}")
+                return False, msg
+
             if on_status:
                 on_status("Downloading official Cisco ClamAV installer...")
             if on_log:
@@ -139,41 +157,52 @@ class ClamEngineInstaller:
         on_log: Optional[Callable[[str], None]] = None,
     ) -> Tuple[bool, str]:
         """Runs winget non-interactively with auto-accepted agreements."""
-        cmd = [
-            "winget", "install", self.CLAMAV_WINGET_ID,
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-            "--disable-interactivity"
-        ]
-        if on_log:
-            on_log(f"[*] Executing: {' '.join(cmd)}")
-        try:
-            proc = spawn_hidden_process(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-            )
-            for line in iter(proc.stdout.readline, ""):
-                line_str = line.strip()
-                if line_str:
-                    if on_status:
-                        on_status(line_str)
-                    if on_log:
-                        on_log(f"    {line_str}")
-
-            proc.wait()
-            if proc.returncode == 0:
-                if on_log:
-                    on_log("[+] Winget package installation finished with exit code 0.")
-                return True, "Winget install completed successfully."
-            else:
-                if on_log:
-                    on_log(f"[!] Winget returned non-zero exit code: {proc.returncode}")
-                return False, f"Winget returned exit code {proc.returncode}"
-        except Exception as e:
+        for pkg_id in (self.CLAMAV_WINGET_ID, "ClamAV.ClamAV"):
+            cmd = [
+                "winget", "install", "--id", pkg_id, "-e",
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+                "--disable-interactivity",
+            ]
             if on_log:
-                on_log(f"[!] Winget execution exception: {e}")
-            return False, f"Error launching winget: {e}"
+                on_log(f"[*] Executing: {' '.join(cmd)}")
+            try:
+                proc = spawn_hidden_process(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                )
+                try:
+                    if proc.stdout:
+                        for line in iter(proc.stdout.readline, ""):
+                            line_str = line.strip()
+                            if line_str:
+                                if on_status:
+                                    on_status(line_str)
+                                if on_log:
+                                    on_log(f"    {line_str}")
+                finally:
+                    if proc.stdout:
+                        proc.stdout.close()
+
+                proc.wait()
+                if proc.returncode == 0:
+                    if on_log:
+                        on_log("[+] Winget package installation finished with exit code 0.")
+                    return True, "Winget install completed successfully."
+                if on_log:
+                    on_log(f"[!] Winget ({pkg_id}) returned non-zero exit code: {proc.returncode}")
+            except OSError as e:
+                err_msg = format_subprocess_os_error(e, "winget.exe")
+                if on_log:
+                    on_log(f"[!] Winget execution error: {err_msg}")
+                return False, f"Error launching winget: {err_msg}"
+            except Exception as e:
+                if on_log:
+                    on_log(f"[!] Winget execution exception: {e}")
+                return False, f"Error launching winget: {e}"
+
+        return False, "Winget package installation did not succeed."
 
     def _install_via_msi(
         self,
@@ -192,13 +221,30 @@ class ClamEngineInstaller:
             if on_log:
                 on_log(f"[*] Starting download from {self.FALLBACK_MSI_URL} to {msi_path}")
 
-            def reporthook(block_num, block_size, total_size):
-                if total_size > 0 and on_progress:
-                    downloaded = block_num * block_size
-                    percent = int(40 + (downloaded / total_size) * 30)
-                    on_progress(min(percent, 70))
+            req = urllib.request.Request(
+                self.FALLBACK_MSI_URL,
+                headers={"User-Agent": f"pyEGClamUI-Setup/{__version__}"},
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp, open(msi_path, "wb") as out_f:
+                total_size = int(resp.headers.get("Content-Length", "0") or 0)
+                downloaded = 0
+                while True:
+                    if self.is_cancelling:
+                        return False, "Installation cancelled by user."
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    out_f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0 and on_progress:
+                        percent = int(40 + (downloaded / total_size) * 30)
+                        on_progress(min(percent, 70))
 
-            urllib.request.urlretrieve(self.FALLBACK_MSI_URL, str(msi_path), reporthook=reporthook)
+            # Verify OLE compound file header (MSI magic bytes)
+            with open(msi_path, "rb") as chk_f:
+                magic = chk_f.read(8)
+            if magic[:4] != b"\xD0\xCF\x11\xE0":
+                return False, "Downloaded MSI installer is invalid or corrupted."
 
             if on_status:
                 on_status("Installing ClamAV (msiexec)...")
@@ -209,7 +255,7 @@ class ClamEngineInstaller:
 
             # Run msiexec quietly and completely hidden
             cmd = ["msiexec.exe", "/i", str(msi_path), "/qn", "/norestart"]
-            res = run_hidden_process(cmd, capture_output=True, timeout=120)
+            res = run_hidden_process(cmd, capture_output=True, timeout=180)
 
             if res.returncode == 0:
                 if on_log:
@@ -334,14 +380,16 @@ class ClamEngineInstaller:
                 import winreg
                 key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_ALL_ACCESS)
                 try:
-                    user_path, _ = winreg.QueryValueEx(key, "Path")
-                except FileNotFoundError:
-                    user_path = ""
+                    try:
+                        user_path, _ = winreg.QueryValueEx(key, "Path")
+                    except FileNotFoundError:
+                        user_path = ""
 
-                if dir_str.lower() not in user_path.lower():
-                    new_user_path = f"{user_path};{dir_str}" if user_path else dir_str
-                    winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_user_path)
-                winreg.CloseKey(key)
+                    if dir_str.lower() not in user_path.lower():
+                        new_user_path = f"{user_path};{dir_str}" if user_path else dir_str
+                        winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_user_path)
+                finally:
+                    winreg.CloseKey(key)
                 return True
             except Exception as e:
                 print(f"[Setup] Registry PATH registration notice: {e}")

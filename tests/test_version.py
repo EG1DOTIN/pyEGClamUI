@@ -44,3 +44,30 @@ def test_version_components():
     assert major.isdigit() and int(major) >= 0
     assert minor.isdigit() and int(minor) >= 0
     assert patch.isdigit() and int(patch) >= 0
+
+
+def test_version_ssot_synchronization():
+    """Verifies packaging scripts and metadata resolve identical version from SSOT."""
+    import importlib.util
+
+    project_root = Path(__file__).resolve().parent.parent
+    ssot_ver = pyegclamui.__version__
+
+    # Verify scripts/package_windows_installer.py reads identical version
+    pkg_script = project_root / "scripts" / "package_windows_installer.py"
+    spec = importlib.util.spec_from_file_location("_pkg_win_test", pkg_script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.get_version() == ssot_ver
+
+    # Verify scripts/build.py resolves identical version
+    build_script = project_root / "scripts" / "build.py"
+    spec_b = importlib.util.spec_from_file_location("_build_test", build_script)
+    mod_b = importlib.util.module_from_spec(spec_b)
+    spec_b.loader.exec_module(mod_b)
+    assert mod_b.__version__ == ssot_ver
+
+    # Verify Inno Setup fallback AppVersion matches SSOT
+    iss_path = project_root / "setup" / "windows" / "pyegclamui_installer.iss"
+    iss_content = iss_path.read_text(encoding="utf-8")
+    assert f'#define AppVersion "{ssot_ver}"' in iss_content

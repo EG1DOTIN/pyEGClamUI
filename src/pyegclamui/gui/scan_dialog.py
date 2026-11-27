@@ -69,6 +69,7 @@ class ScanDialog(QDialog):
         self.scan_type = scan_type
         self.targets = targets
         self.worker: Optional[ScanWorker] = None
+        self._scanned_count = 0
         self.elapsed_seconds = 0
         self.report: Optional[ScanReport] = None
         self.start_time = datetime.now()
@@ -78,7 +79,7 @@ class ScanDialog(QDialog):
         self.setMinimumSize(600, 400)
 
         # Set window icon
-        icon_path = AppPaths.get_asset_path("egav.ico")
+        icon_path = AppPaths.get_app_icon_path()
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 
@@ -187,8 +188,8 @@ class ScanDialog(QDialog):
 
     def on_file_scanned(self, filepath: str):
         self.current_file_label.setText(f"Scanning: {filepath}")
-        current_count = int(self.files_count_label.text().split(":")[-1].strip()) + 1
-        self.files_count_label.setText(f"Scanned Files: {current_count}")
+        self._scanned_count += 1
+        self.files_count_label.setText(f"Scanned Files: {self._scanned_count}")
 
     def on_threat_found(self, threat_info: dict):
         row = self.threats_table.rowCount()
@@ -224,13 +225,22 @@ class ScanDialog(QDialog):
         self.stop_btn.setEnabled(False)
         self.close_btn.setEnabled(True)
 
+        is_fatal_error = (
+            bool(report.summary_text and (report.summary_text.startswith("Error") or report.summary_text.startswith("Failed")))
+            or (report.errors_count > 0 and report.scanned_files == 0 and report.threats_found == 0)
+        )
         if report.cancelled:
             self.title_label.setText("Scan Cancelled")
             self.title_label.setStyleSheet("color: #eab308;")
-        elif report.errors_count > 0 or (report.summary_text and report.summary_text.startswith("Error")):
+        elif is_fatal_error:
             self.title_label.setText("Scan Failed - Engine Error")
             self.title_label.setStyleSheet("color: #ef4444;")
-            self.current_file_label.setText(report.summary_text)
+            err_detail = report.summary_text or (
+                report.errors_list[0].get("error", "Engine execution error")
+                if report.errors_list
+                else "Engine execution error"
+            )
+            self.current_file_label.setText(err_detail)
         elif report.threats_found > 0:
             self.title_label.setText(f"Scan Finished - {report.threats_found} Threat(s) Found!")
             self.title_label.setStyleSheet("color: #ef4444;")

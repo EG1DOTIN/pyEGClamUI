@@ -70,7 +70,7 @@ class ClamSetupDialog(QDialog):
         self.setMinimumSize(600, 440)
 
         # Set App Icon
-        icon_path = AppPaths.get_asset_path("egav.ico")
+        icon_path = AppPaths.get_app_icon_path()
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 
@@ -314,6 +314,7 @@ class ClamSetupDialog(QDialog):
 
             # Register in PATH
             ClamEngineInstaller.register_path_environment(folder_path)
+            self.detector.invalidate_cache()
 
             QMessageBox.information(
                 self,

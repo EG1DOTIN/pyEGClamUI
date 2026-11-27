@@ -13,7 +13,11 @@ from typing import Callable, Optional, Tuple
 
 from pyegclamui.core.config import AppPaths, Config
 from pyegclamui.core.detector import ClamEngineDetector
-from pyegclamui.core.process import run_hidden_process, spawn_hidden_process
+from pyegclamui.core.process import (
+    format_subprocess_os_error,
+    run_hidden_process,
+    spawn_hidden_process,
+)
 
 
 class ClamUpdater:
@@ -117,12 +121,20 @@ class ClamUpdater:
             )
 
             full_log = []
-            for line in iter(self.current_process.stdout.readline, ""):
-                line_str = line.strip()
-                if line_str:
-                    full_log.append(line_str)
-                    if on_line:
-                        on_line(line_str + "\n")
+            try:
+                if self.current_process.stdout:
+                    for line in iter(self.current_process.stdout.readline, ""):
+                        line_str = line.strip()
+                        if line_str:
+                            full_log.append(line_str)
+                            if on_line:
+                                on_line(line_str + "\n")
+            finally:
+                if self.current_process and self.current_process.stdout:
+                    try:
+                        self.current_process.stdout.close()
+                    except Exception:
+                        pass
 
             self.current_process.wait()
             return_code = self.current_process.returncode
@@ -132,10 +144,12 @@ class ClamUpdater:
             if return_code == 0:
                 success = True
                 status_msg = "Database updated successfully."
+                self.detector.invalidate_cache()
                 self.config.set("last_update_check", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             elif return_code == 1:
                 success = True
                 status_msg = "Database is already up to date."
+                self.detector.invalidate_cache()
                 self.config.set("last_update_check", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             else:
                 success = False
@@ -145,7 +159,14 @@ class ClamUpdater:
                 on_finished(success, status_msg)
             return success, status_msg
 
+        except OSError as e:
+            self.current_process = None
+            err_msg = f"Failed to execute freshclam: {format_subprocess_os_error(e, Path(freshclam).name)}"
+            if on_finished:
+                on_finished(False, err_msg)
+            return False, err_msg
         except Exception as e:
+            self.current_process = None
             err_msg = f"Failed to execute freshclam: {e}"
             if on_finished:
                 on_finished(False, err_msg)
@@ -178,6 +199,43 @@ class GlobalUpdatePipeline:
         self.project_root = Path(__file__).resolve().parent.parent.parent.parent
         self.current_proc: Optional[subprocess.Popen] = None
         self._cancelled = False
+
+    def _run_streaming_command(
+        self,
+        cmd: list[str],
+        cwd: Optional[str] = None,
+        line_filter: Optional[Callable[[str], bool]] = None,
+        on_log: Optional[Callable[[str], None]] = None,
+    ) -> Tuple[int, list[str]]:
+        """Executes a subprocess with streaming log lines and safe cleanup."""
+        output_lines: list[str] = []
+        self.current_proc = spawn_hidden_process(
+            cmd,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            if self.current_proc.stdout:
+                for line in iter(self.current_proc.stdout.readline, ""):
+                    if self._cancelled:
+                        break
+                    clean = line.strip()
+                    if clean:
+                        output_lines.append(clean)
+                        if on_log and (line_filter is None or line_filter(clean)):
+                            on_log(f"    {clean}")
+        finally:
+            if self.current_proc and self.current_proc.stdout:
+                try:
+                    self.current_proc.stdout.close()
+                except Exception:
+                    pass
+
+        self.current_proc.wait()
+        rc = self.current_proc.returncode
+        self.current_proc = None
+        return rc, output_lines
 
     def cancel(self):
         """Cancels any running sub-process or pipeline stage."""
@@ -231,21 +289,12 @@ class GlobalUpdatePipeline:
             log(f"[*] Workspace git directory detected: {self.project_root}")
             log("[*] Fetching and pulling updates from remote repository (git pull --ff-only)...")
             try:
-                self.current_proc = spawn_hidden_process(
+                rc, output_lines = self._run_streaming_command(
                     ["git", "pull", "--ff-only"],
                     cwd=str(self.project_root),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
+                    on_log=log,
                 )
-                output_lines = []
-                for line in iter(self.current_proc.stdout.readline, ""):
-                    clean = line.strip()
-                    if clean:
-                        output_lines.append(clean)
-                        log(f"    {clean}")
-
-                self.current_proc.wait()
-                if self.current_proc.returncode == 0:
+                if rc == 0:
                     joined = " ".join(output_lines).lower()
                     if "already up to date" in joined:
                         log("[+] pyEGClamUI application code is already up-to-date.")
@@ -255,9 +304,8 @@ class GlobalUpdatePipeline:
                         log("[+] New pyEGClamUI application code pulled successfully!")
                         stage_results.append("App Code: Updated")
                 else:
-                    log(f"[!] Git pull returned non-zero code ({self.current_proc.returncode}). Continuing...")
+                    log(f"[!] Git pull returned non-zero code ({rc}). Continuing...")
                     stage_results.append("App Code: Notice/Warning")
-                self.current_proc = None
             except Exception as e:
                 log(f"[!] Notice during git pull: {e}")
                 stage_results.append("App Code: Skipped")
@@ -297,25 +345,18 @@ class GlobalUpdatePipeline:
         if pip_cmd:
             try:
                 log(f"[*] Executing: {' '.join(pip_cmd)}")
-                self.current_proc = spawn_hidden_process(
+                rc, _ = self._run_streaming_command(
                     pip_cmd,
                     cwd=str(self.project_root),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
+                    line_filter=lambda c: not c.startswith("Requirement already satisfied"),
+                    on_log=log,
                 )
-                for line in iter(self.current_proc.stdout.readline, ""):
-                    clean = line.strip()
-                    if clean and not clean.startswith("Requirement already satisfied"):
-                        log(f"    {clean}")
-
-                self.current_proc.wait()
-                if self.current_proc.returncode == 0:
+                if rc == 0:
                     log("[+] Python dependencies synchronized successfully.")
                     stage_results.append("Dependencies: Synced")
                 else:
-                    log(f"[!] Pip returned code {self.current_proc.returncode}.")
+                    log(f"[!] Pip returned code {rc}.")
                     stage_results.append("Dependencies: Checked")
-                self.current_proc = None
             except Exception as e:
                 log(f"[!] Pip execution notice: {e}")
                 stage_results.append("Dependencies: Skipped")
@@ -368,26 +409,22 @@ class GlobalUpdatePipeline:
         log("[STAGE 4/4] Checking ClamAV Engine Binary Upgrades...")
         log("=" * 60)
 
-        eng_version = self.detector.get_engine_version()
+        eng_version = self.detector.get_engine_version(force=True)
         log(f"[*] Current ClamAV Engine: {eng_version.get('clamav_version', 'Not Found')}")
 
         if sys.platform == "win32" and shutil.which("winget"):
             log("[*] Checking for upgrades via Windows Package Manager (winget)...")
             try:
-                cmd = ["winget", "upgrade", "ClamAV.ClamAV", "--accept-source-agreements", "--accept-package-agreements"]
-                self.current_proc = spawn_hidden_process(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                )
-                for line in iter(self.current_proc.stdout.readline, ""):
-                    clean = line.strip()
-                    if clean:
-                        log(f"    {clean}")
-                self.current_proc.wait()
+                cmd = [
+                    "winget", "upgrade", "--id", "Cisco.ClamAV", "-e",
+                    "--accept-source-agreements", "--accept-package-agreements",
+                ]
+                self._run_streaming_command(cmd, on_log=log)
                 log("[+] Engine binary check completed.")
                 stage_results.append("Engine: Checked (winget)")
-                self.current_proc = None
+            except OSError as e:
+                log(f"[!] Winget upgrade notice: {format_subprocess_os_error(e, 'winget.exe')}")
+                stage_results.append("Engine: Skipped")
             except Exception as e:
                 log(f"[!] Winget upgrade notice: {e}")
                 stage_results.append("Engine: Skipped")

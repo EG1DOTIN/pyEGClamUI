@@ -391,8 +391,8 @@ class TkinterApp:
                 "ClamAV engine is installed, but virus definitions (VSD) have not been downloaded yet.\n\n"
                 "Would you like to switch to the Maintenance tab and update signatures now?"
             ):
-                self.notebook.select(self.tab_maint)
-                self._trigger_signature_update()
+                self.notebook.select(self.tab_maintenance)
+                self._start_signature_update()
             return
 
         self.is_scanning = True
@@ -590,17 +590,27 @@ class TkinterApp:
                     self.btn_custom.config(state=tk.NORMAL)
                     self.btn_stop.config(state=tk.DISABLED)
 
+                    is_fatal_error = (
+                        bool(report.summary_text and report.summary_text.startswith("Error"))
+                        or bool(report.summary_text and report.summary_text.startswith("Failed"))
+                        or (report.errors_count > 0 and report.scanned_files == 0 and report.threats_found == 0)
+                    )
                     if report.cancelled:
                         status = "Scan cancelled."
                         self.lbl_progress.config(text=status)
                         summary = f"=== Scan cancelled in {report.duration_seconds()}s ==="
                         self._log_msg(summary, "warn")
-                    elif report.errors_count > 0 or (report.summary_text and report.summary_text.startswith("Error")):
+                    elif is_fatal_error:
                         status = "Scan error."
                         self.lbl_progress.config(text=status)
-                        summary = f"=== Scan failed in {report.duration_seconds()}s: {report.summary_text} ==="
+                        err_detail = report.summary_text or (
+                            report.errors_list[0].get("error", "Unknown error")
+                            if report.errors_list
+                            else "Unknown error"
+                        )
+                        summary = f"=== Scan failed in {report.duration_seconds()}s: {err_detail} ==="
                         self._log_msg(summary, "threat")
-                        self._show_error("Scan Error", f"Scan could not be completed:\n\n{report.summary_text}")
+                        self._show_error("Scan Error", f"Scan could not be completed:\n\n{err_detail}")
                     elif report.threats_found > 0:
                         status = "Scan completed with threats found."
                         self.lbl_progress.config(text=status)
@@ -630,6 +640,8 @@ class TkinterApp:
                 elif ev_type == "update_done":
                     self.is_updating = False
                     self.btn_update_sig.config(state=tk.NORMAL)
+                    if hasattr(self, "detector") and self.detector:
+                        self.detector.invalidate_cache()
                     self._log_maint(msg[1])
                     self._show_info("Signatures Updated", msg[1])
 

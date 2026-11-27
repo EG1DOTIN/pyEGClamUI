@@ -9,10 +9,116 @@ with 100% hidden window execution across Windows, Linux, and macOS.
 """
 
 import os
+import platform
+import struct
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+
+# Windows PE COFF machine constants
+_PE_MACHINE_X86 = 0x014C
+_PE_MACHINE_AMD64 = 0x8664
+_PE_MACHINE_ARM64 = 0xAA64
+
+
+def is_windows_64bit_os() -> bool:
+    """
+    Returns True if the host Windows operating system is 64-bit (x64 or ARM64).
+    Checks WOW64 environment variables as well as pointer width and machine string.
+    """
+    if sys.maxsize > (2**32):
+        return True
+    arch_env = (
+        os.environ.get("PROCESSOR_ARCHITEW6432", "")
+        or os.environ.get("PROCESSOR_ARCHITECTURE", "")
+    ).upper()
+    if arch_env in ("AMD64", "ARM64", "IA64"):
+        return True
+    mach = platform.machine().lower()
+    return mach in ("amd64", "x86_64", "arm64", "aarch64")
+
+
+def get_pe_machine_type(exe_path: Union[str, Path]) -> Optional[int]:
+    """
+    Reads the COFF Machine field from a Windows PE executable header.
+    Returns None if the file is not a valid PE binary or cannot be read.
+    """
+    try:
+        with open(exe_path, "rb") as f:
+            dos_header = f.read(64)
+            if len(dos_header) < 64 or dos_header[:2] != b"MZ":
+                return None
+            e_lfanew = struct.unpack_from("<I", dos_header, 0x3C)[0]
+            if e_lfanew < 64 or e_lfanew > 1024 * 1024:
+                return None
+            f.seek(e_lfanew)
+            pe_header = f.read(6)
+            if len(pe_header) < 6 or pe_header[:4] != b"PE\x00\x00":
+                return None
+            return struct.unpack_from("<H", pe_header, 4)[0]
+    except OSError:
+        return None
+
+
+def is_compatible_windows_binary(exe_path: Union[str, Path]) -> Tuple[bool, str]:
+    """
+    Verifies whether a Windows executable is a valid PE binary compatible with the
+    host Windows architecture, preventing WinError 216 (ERROR_EXE_MACHINE_TYPE_MISMATCH).
+    Returns (is_compatible, reason).
+    """
+    path = Path(exe_path)
+    if not path.is_file():
+        return False, f"File does not exist: {path}"
+
+    # Non-.exe files (e.g. .cmd/.bat/scripts) cannot be checked as PE; allow scripts,
+    # reject empty/extensionless files on Windows when looking for native binaries.
+    suffix = path.suffix.lower()
+    if suffix in (".cmd", ".bat"):
+        return True, "Batch script"
+
+    machine = get_pe_machine_type(path)
+    if machine is None:
+        return False, f"Not a valid Windows PE executable: {path.name}"
+
+    host_arch = (
+        os.environ.get("PROCESSOR_ARCHITEW6432", "")
+        or os.environ.get("PROCESSOR_ARCHITECTURE", "")
+        or platform.machine()
+    ).upper()
+    is_arm64_host = "ARM64" in host_arch or "AARCH64" in host_arch
+    is_64_os = is_windows_64bit_os()
+
+    if machine == _PE_MACHINE_X86:
+        return True, "x86 (32-bit)"
+    if machine == _PE_MACHINE_AMD64:
+        if is_64_os:
+            return True, "x64 (64-bit)"
+        return False, (
+            f"'{path.name}' is a 64-bit (x64) executable and cannot run on 32-bit Windows."
+        )
+    if machine == _PE_MACHINE_ARM64:
+        if is_arm64_host:
+            return True, "ARM64"
+        return False, (
+            f"'{path.name}' is an ARM64 executable and is incompatible with this Windows CPU."
+        )
+
+    return False, f"Unsupported PE machine architecture (0x{machine:04x}) in {path.name}"
+
+
+def format_subprocess_os_error(exc: OSError, binary_name: str = "executable") -> str:
+    """Formats OS process launch errors (including WinError 216) into actionable messages."""
+    winerror = getattr(exc, "winerror", None)
+    if winerror == 216:
+        return (
+            f"Incompatible Windows executable '{binary_name}' (WinError 216): "
+            "This binary architecture or version does not match your Windows OS "
+            "(for example, 64-bit binary on 32-bit Windows or corrupted executable). "
+            "Please install the ClamAV build matching your system architecture."
+        )
+    return str(exc)
 
 
 def get_hidden_subprocess_kwargs() -> Dict[str, Any]:

@@ -19,10 +19,16 @@ from pyegclamui.core.config import AppPaths, Config
 from pyegclamui.core.daemon import ClamDaemonClient
 from pyegclamui.core.detector import ClamEngineDetector
 from pyegclamui.core.logger import get_logger, log_scan_report
-from pyegclamui.core.process import spawn_hidden_process
+from pyegclamui.core.process import format_subprocess_os_error, spawn_hidden_process
 from pyegclamui.core.quarantine import QuarantineManager
 
 logger = get_logger("scanner")
+
+# Pre-compiled patterns for high-throughput line parsing during large scans
+_RE_THREAT = re.compile(r"^(.*):\s+(.+?)\s+FOUND$")
+_RE_OK = re.compile(r"^(.*):\s+OK$")
+_RE_ERROR = re.compile(r"^(.*):\s+(.+?)\s+ERROR$")
+_RE_WARNING = re.compile(r"^(.*):\s+(.+?)\s+WARNING$")
 
 
 class ScanType:
@@ -115,7 +121,7 @@ class ClamScanner:
             "--bell",
         ]
 
-        db_dir = AppPaths.get_database_dir()
+        db_dir = self.detector.get_active_database_dir() or AppPaths.get_database_dir()
         if db_dir.is_dir() and any(db_dir.glob("*.c*d")):
             args.extend(["--database", str(db_dir.resolve())])
 
@@ -134,28 +140,29 @@ class ClamScanner:
             max_rec = self.config.get("scan_settings", "max_recursion", default=15)
             args.extend([
                 f"--max-scansize={max_ext_mb}M",
-                f"--max-filesize={max_size_mb}M",
                 f"--max-files={max_ext_files}",
-                f"--max-recursion={max_rec}"
+                f"--max-recursion={max_rec}",
             ])
 
         # Exclusions / Inclusions
         scan_only = self.config.get("scan_settings", "include_only_extensions", default=[])
         if scan_only:
             for ext in scan_only:
-                clean_ext = ext.lstrip(".")
-                args.append(f"--include=.*\\.{clean_ext}$")
+                clean_ext = ext.strip().lstrip(".")
+                if clean_ext:
+                    args.append(f"--include=.*\\.{re.escape(clean_ext)}$")
         else:
             excludes = self.config.get("scan_settings", "exclude_extensions", default=[])
             for ext in excludes:
-                clean_ext = ext.lstrip(".")
-                args.append(f"--exclude=.*\\.{clean_ext}$")
+                clean_ext = ext.strip().lstrip(".")
+                if clean_ext:
+                    args.append(f"--exclude=.*\\.{re.escape(clean_ext)}$")
 
         # Target paths
         args.extend(targets)
         return args
 
-    def build_clamdscan_args(self, targets: List[str]) -> List[str]:
+    def build_clamdscan_args(self, targets: List[str], conn_type: Optional[str] = None) -> List[str]:
         """
         Builds safe, discrete argument array for clamdscan daemon client execution.
         Supports Windows, Linux, and macOS platforms.
@@ -173,7 +180,8 @@ class ClamScanner:
         # On Unix/Linux/macOS: when using Unix domain socket, add --fdpass
         # so clamd can scan user-owned files without permission issues
         if sys.platform != "win32":
-            _, conn_type = self.detector.check_daemon_socket()
+            if conn_type is None:
+                _, conn_type = self.detector.check_daemon_socket()
             if "Unix Socket" in conn_type:
                 args.append("--fdpass")
 
@@ -197,7 +205,7 @@ class ClamScanner:
 
         # 1. Threat detected: "<path>: <threat_name> FOUND"
         if line_str.endswith("FOUND"):
-            m = re.search(r"^(.*):\s+(.+?)\s+FOUND$", line_str)
+            m = _RE_THREAT.search(line_str)
             if m:
                 return {
                     "type": "threat",
@@ -207,7 +215,7 @@ class ClamScanner:
 
         # 2. Clean file: "<path>: OK"
         if line_str.endswith("OK"):
-            m = re.search(r"^(.*):\s+OK$", line_str)
+            m = _RE_OK.search(line_str)
             clean_path = m.group(1).strip() if m else line_str[:-2].strip().rstrip(":")
             return {
                 "type": "ok",
@@ -216,7 +224,7 @@ class ClamScanner:
 
         # 3. File error: "<path>: <error_msg> ERROR"
         if line_str.endswith("ERROR"):
-            m = re.search(r"^(.*):\s+(.+?)\s+ERROR$", line_str)
+            m = _RE_ERROR.search(line_str)
             if m:
                 return {
                     "type": "error",
@@ -227,7 +235,7 @@ class ClamScanner:
 
         # 4. Warning: "<path>: <warning_msg> WARNING"
         if line_str.endswith("WARNING"):
-            m = re.search(r"^(.*):\s+(.+?)\s+WARNING$", line_str)
+            m = _RE_WARNING.search(line_str)
             if m:
                 return {
                     "type": "warning",
@@ -299,42 +307,43 @@ class ClamScanner:
 
         action_preference = self.config.get("preferences", "action_on_threat", default=3)
 
-        for target in targets:
-            if self._cancelled:
-                break
-            results = self.daemon_client.scan_path(target, contscan=True)
-            for res in results:
+        try:
+            for target in targets:
                 if self._cancelled:
                     break
-                status = res.get("status")
-                file_path = res.get("path", "")
-                if status == "FOUND":
-                    threat_name = res.get("threat", "Threat")
-                    action_taken = self._remediate_threat(file_path, threat_name, action_preference)
-                    threat_info = {
-                        "path": file_path,
-                        "threat": threat_name,
-                        "action": action_taken,
-                        "time": datetime.now().strftime("%H:%M:%S"),
-                    }
-                    report.threats_found += 1
-                    report.threats_list.append(threat_info)
-                    if on_threat:
-                        on_threat(threat_info)
-                elif status == "OK":
-                    report.scanned_files += 1
-                    if on_progress:
-                        on_progress(file_path)
-                elif status == "ERROR":
-                    report.errors_count += 1
-                    report.errors_list.append({
-                        "path": file_path,
-                        "error": res.get("error", "Daemon scan error"),
-                    })
-
-        report.end_time = datetime.now()
-        report.cancelled = self._cancelled
-        self.is_running = False
+                results = self.daemon_client.scan_path(target, contscan=True)
+                for res in results:
+                    if self._cancelled:
+                        break
+                    status = res.get("status")
+                    file_path = res.get("path", "")
+                    if status == "FOUND":
+                        threat_name = res.get("threat", "Threat")
+                        action_taken = self._remediate_threat(file_path, threat_name, action_preference)
+                        threat_info = {
+                            "path": file_path,
+                            "threat": threat_name,
+                            "action": action_taken,
+                            "time": datetime.now().strftime("%H:%M:%S"),
+                        }
+                        report.threats_found += 1
+                        report.threats_list.append(threat_info)
+                        if on_threat:
+                            on_threat(threat_info)
+                    elif status == "OK":
+                        report.scanned_files += 1
+                        if on_progress:
+                            on_progress(file_path)
+                    elif status == "ERROR":
+                        report.errors_count += 1
+                        report.errors_list.append({
+                            "path": file_path,
+                            "error": res.get("error", "Daemon scan error"),
+                        })
+        finally:
+            report.end_time = datetime.now()
+            report.cancelled = self._cancelled
+            self.is_running = False
 
         log_scan_report(
             scan_type=report.scan_type,
@@ -385,16 +394,20 @@ class ClamScanner:
 
         cmd: Optional[List[str]] = None
         engine_label = "clamscan"
+        daemon_online = False
+        daemon_conn = "Offline"
+        using_daemon_cli = False
 
         # 1. Attempt daemon-accelerated clamdscan if daemon is online and preferred
         if prefer_daemon:
-            daemon_online, _ = self.detector.check_daemon_socket()
+            daemon_online, daemon_conn = self.detector.check_daemon_socket()
             if daemon_online:
                 clamdscan_path = self.detector.get_clamdscan_path()
                 if clamdscan_path:
                     try:
-                        cmd = self.build_clamdscan_args(targets)
+                        cmd = self.build_clamdscan_args(targets, conn_type=daemon_conn)
                         engine_label = "clamdscan (Daemon Accelerated)"
+                        using_daemon_cli = True
                         logger.info("Routing %s via %s (Daemon)", scan_type, clamdscan_path)
                     except Exception as ex:
                         logger.warning("Could not build clamdscan arguments: %s", ex)
@@ -408,7 +421,8 @@ class ClamScanner:
                 logger.info("Routing %s via standalone clamscan", scan_type)
             except FileNotFoundError as fnf:
                 # 3. If neither clamdscan nor clamscan is installed, try native socket streaming
-                daemon_online, _ = self.detector.check_daemon_socket()
+                if not prefer_daemon:
+                    daemon_online, _ = self.detector.check_daemon_socket()
                 if daemon_online:
                     logger.info("clamscan executable not found, falling back to socket daemon scan")
                     return self.scan_with_daemon(
@@ -443,6 +457,43 @@ class ClamScanner:
                 stderr=subprocess.STDOUT,
                 bufsize=1,
             )
+        except OSError as e:
+            # If clamdscan failed to spawn (e.g. WinError 216), gracefully fall back to clamscan or socket scan
+            if using_daemon_cli:
+                logger.warning("clamdscan failed to launch (%s); falling back to standalone/socket scan", e)
+                try:
+                    fallback_cmd = self.build_clamscan_args(targets)
+                    engine_label = "clamscan (Standalone Fallback)"
+                    self.current_process = spawn_hidden_process(
+                        fallback_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        bufsize=1,
+                    )
+                except Exception as fallback_err:
+                    if daemon_online:
+                        return self.scan_with_daemon(
+                            scan_type=scan_type,
+                            targets=targets,
+                            on_progress=on_progress,
+                            on_threat=on_threat,
+                            on_status=on_status,
+                        )
+                    err_msg = format_subprocess_os_error(fallback_err, "clamscan") if isinstance(fallback_err, OSError) else str(fallback_err)
+                    report.summary_text = f"Failed to start scanner process: {err_msg}"
+                    report.errors_count = 1
+                    report.errors_list.append({"error": report.summary_text})
+                    report.end_time = datetime.now()
+                    self.is_running = False
+                    return report
+            else:
+                err_msg = format_subprocess_os_error(e, Path(cmd[0]).name)
+                report.summary_text = f"Failed to start scanner process: {err_msg}"
+                report.errors_count = 1
+                report.errors_list.append({"error": report.summary_text})
+                report.end_time = datetime.now()
+                self.is_running = False
+                return report
         except Exception as e:
             report.summary_text = f"Failed to start scanner process: {e}"
             report.errors_count = 1
@@ -454,56 +505,72 @@ class ClamScanner:
         action_preference = self.config.get("preferences", "action_on_threat", default=3)
 
         # Output parser loop
-        for line in iter(self.current_process.stdout.readline, ""):
-            parsed = self.parse_line(line)
-            if not parsed:
-                continue
+        try:
+            if self.current_process.stdout:
+                for line in iter(self.current_process.stdout.readline, ""):
+                    parsed = self.parse_line(line)
+                    if not parsed:
+                        continue
 
-            ptype = parsed.get("type")
+                    ptype = parsed.get("type")
 
-            if ptype == "threat":
-                file_path = parsed["path"]
-                threat_name = parsed["threat"]
-                action_taken = self._remediate_threat(file_path, threat_name, action_preference)
+                    if ptype == "threat":
+                        file_path = parsed["path"]
+                        threat_name = parsed["threat"]
+                        action_taken = self._remediate_threat(file_path, threat_name, action_preference)
 
-                threat_info = {
-                    "path": file_path,
-                    "threat": threat_name,
-                    "action": action_taken,
-                    "time": datetime.now().strftime("%H:%M:%S")
-                }
-                report.threats_found += 1
-                report.threats_list.append(threat_info)
+                        threat_info = {
+                            "path": file_path,
+                            "threat": threat_name,
+                            "action": action_taken,
+                            "time": datetime.now().strftime("%H:%M:%S")
+                        }
+                        report.threats_found += 1
+                        report.threats_list.append(threat_info)
 
-                if on_threat:
-                    on_threat(threat_info)
+                        if on_threat:
+                            on_threat(threat_info)
 
-            elif ptype == "ok":
-                report.scanned_files += 1
-                if on_progress:
-                    on_progress(parsed["path"])
+                    elif ptype == "ok":
+                        report.scanned_files += 1
+                        if on_progress:
+                            on_progress(parsed["path"])
 
-            elif ptype == "error":
-                report.errors_count += 1
-                report.errors_list.append({"path": parsed.get("path", ""), "error": parsed.get("error", "")})
+                    elif ptype == "error":
+                        report.errors_count += 1
+                        report.errors_list.append({"path": parsed.get("path", ""), "error": parsed.get("error", "")})
 
-            elif ptype == "summary_scanned_files":
-                report.scanned_files = parsed["count"]
+                    elif ptype == "summary_scanned_files":
+                        report.scanned_files = parsed["count"]
 
-            elif ptype == "summary_infected_files":
-                if parsed["count"] > report.threats_found:
-                    report.threats_found = parsed["count"]
+                    elif ptype == "summary_infected_files":
+                        if parsed["count"] > report.threats_found:
+                            report.threats_found = parsed["count"]
 
-            elif ptype == "summary_errors":
-                report.errors_count = parsed["count"]
+                    elif ptype == "summary_errors":
+                        report.errors_count = parsed["count"]
+        finally:
+            if self.current_process:
+                if self.current_process.stdout:
+                    try:
+                        self.current_process.stdout.close()
+                    except Exception:
+                        pass
+                try:
+                    self.current_process.wait()
+                except Exception:
+                    pass
+            report.end_time = datetime.now()
+            report.cancelled = self._cancelled
+            self.is_running = False
+            self.current_process = None
 
-        self.current_process.wait()
-        report.end_time = datetime.now()
-        report.cancelled = self._cancelled
-        self.is_running = False
-        self.current_process = None
-
-        if report.scanned_files == 0 and not report.cancelled and not report.threats_found:
+        if (
+            report.scanned_files == 0
+            and not report.cancelled
+            and not report.threats_found
+            and report.errors_count == 0
+        ):
             report.scanned_files = len(targets)
 
         log_scan_report(
